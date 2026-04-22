@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bazel-parser",
+    "crates/bazel-aspect",
+    "crates/bazel-query",
+    "crates/bazel-graph",
+    "crates/bazel-cache",
+    "crates/bazel-jdt-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+starlark_syntax = "0.13.0"
+petgraph = "0.6"
+redb = "3.1"
+notify = { version = "8.1", features = ["macos_kqueue"] }
+notify-debouncer-full = "0.5"
+jni = "0.21.1"
+sha2 = "0.10"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+anyhow = "1"
