@@ -1,20 +1,18 @@
 import * as vscode from 'vscode';
 import { registerCommands } from './commands';
-import { createStatusBar, from './statusBar';
+import { createStatusBar } from './statusBar';
 import { getConfig } from './config';
 import { BazelConfig } from './config';
 
-export function activate(context: vscode.ExtensionContext) {
-    const workspaceRoot = vscode.workspace.workspaceFolders[0]?. vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
+export async function activate(context: vscode.ExtensionContext) {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!workspaceRoot) {
         return;
     }
 
-    const hasWorkspaceFile = vscode.workspace.findFiles('WORKSPACE').length > 0
-        || vscode.workspace.findFiles('WORKSPACE.bazel').length > 0;
-
-    if (!hasWorkspaceFile) {
+    const workspaceFiles = await vscode.workspace.findFiles('{WORKSPACE,WORKSPACE.bazel}');
+    if (workspaceFiles.length === 0) {
         return;
     }
 

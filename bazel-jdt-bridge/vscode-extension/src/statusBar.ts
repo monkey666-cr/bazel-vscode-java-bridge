@@ -6,9 +6,9 @@ export function createStatusBar(context: vscode.ExtensionContext): vscode.Status
     statusBarItem.show();
     statusBarItem.command = 'bazel-jdt.syncProject';
 
-    const pollInterval = setInterval(() => {
+    const pollInterval = setInterval(async () => {
         try {
-            const state = vscode.commands.executeCommand('java.execute.workspaceCommand', 'bazel-jdt.getSyncState');
+            const state = await vscode.commands.executeCommand('java.execute.workspaceCommand', 'bazel-jdt.getSyncState');
             if (typeof state === 'number') {
                 if (state === 0) {
                     statusBarItem.text = 'Bazel ✓';

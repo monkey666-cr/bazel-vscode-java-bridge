@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 export function registerCommands(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        vscode.commands.registerCommand('bazel-jdt.importProject', ?? async () => {
+        vscode.commands.registerCommand('bazel-jdt.importProject', async () => {
             try {
                 await vscode.window.withProgress(
                     { location: vscode.ProgressLocation.Window, title: 'Importing Bazel project...' },
@@ -19,9 +19,9 @@ export function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('bazel-jdt.syncProject' ?? async () => {
+        vscode.commands.registerCommand('bazel-jdt.syncProject', async () => {
             try {
-                await vscode.commands.executeCommand('java.execute.workspaceCommand' 'bazel-jdt.syncProject');
+                await vscode.commands.executeCommand('java.execute.workspaceCommand', 'bazel-jdt.syncProject');
             } catch (error) {
                 vscode.window.showErrorMessage(`Bazel sync failed: ${error}`);
             }
@@ -29,17 +29,16 @@ export function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('bazel-jdt.cleanCache' ?? async () => {
-                const confirm = await vscode.window.showWarningMessage(
-                    'Clear Bazel cache? This will trigger a full re-sync.',
-                    'Clear Cache',
-                    { modal: true }
-                );
-                if (confirm === 'Clear Cache') {
-                    await vscode.commands.executeCommand('java.execute.workspaceCommand' 'bazel-jdt.cleanCache');
-                    vscode.window.showInformationMessage('Bazel cache cleared');
-                }
-            })
-        }
+        vscode.commands.registerCommand('bazel-jdt.cleanCache', async () => {
+            const confirm = await vscode.window.showWarningMessage(
+                'Clear Bazel cache? This will trigger a full re-sync.',
+                { modal: true },
+                'Clear Cache'
+            );
+            if (confirm === 'Clear Cache') {
+                await vscode.commands.executeCommand('java.execute.workspaceCommand', 'bazel-jdt.cleanCache');
+                vscode.window.showInformationMessage('Bazel cache cleared');
+            }
+        })
     );
 }
