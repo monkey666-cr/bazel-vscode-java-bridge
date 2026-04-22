@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin>
+    <extension point="org.eclipse.jdt.ls.core.importers">
+        <importer class="com.bazel.jdt.BazelProjectImporter" order="200"/>
+    </extension>
+
+    <extension point="org.eclipse.jdt.ls.core.buildSupport">
+        <buildSupport class="com.bazel.jdt.BazelBuildSupport" order="200"/>
+    </extension>
+
+    <extension point="org.eclipse.jdt.core.classpathContainerInitializer">
+        <classpathContainerInitializer
+            id="com.bazel.jdt.BAZEL_CONTAINER"
+            class="com.bazel.jdt.BazelClasspathContainerInitializer"/>
+    </extension>
+
+    <extension point="org.eclipse.jdt.ls.core.delegateCommandHandler">
+        <delegateCommandHandler class="com.bazel.jdt.BazelCommandHandler"/>
+    </extension>
+</plugin>

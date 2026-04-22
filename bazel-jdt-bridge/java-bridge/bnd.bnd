@@ -1,0 +1,11 @@
+Bundle-SymbolicName: com.bazel.jdt; singleton:=true
+Bundle-Version: 0.1.0
+Bundle-Name: Bazel JDT Bridge
+Require-Bundle: org.eclipse.jdt.core, org.eclipse.jdt.ls.core
+Export-Package: com.bazel.jdt
+Bundle-NativeCode: \
+    native/linux-x86_64/libbazel_jdt_core.so; osname=Linux; processor=x86_64, \
+    native/linux-aarch64/libbazel_jdt_core.so; osname=Linux; processor=aarch64, \
+    native/darwin-x86_64/libbazel_jdt_core.dylib; osname=Mac OS X; processor=x86_64, \
+    native/darwin-aarch64/libbazel_jdt_core.dylib; osname=Mac OS X; processor=aarch64, \
+    native/windows-x86_64/bazel_jdt_core.dll; osname=Win32; processor=x86_64
