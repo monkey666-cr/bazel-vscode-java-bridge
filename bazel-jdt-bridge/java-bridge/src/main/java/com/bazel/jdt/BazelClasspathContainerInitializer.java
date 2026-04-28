@@ -14,13 +14,8 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
         if (!BazelClasspathContainer.CONTAINER_PATH.equals(containerPath)) {
             return;
         }
-        IClasspathContainer container = new BazelClasspathContainer(null);
-        JavaCore.setClasspathContainer(
-            containerPath,
-            new IJavaProject[]{project},
-            new IClasspathContainer[]{container},
-            null
-        );
+        String targetLabel = "//" + project.getProject().getName() + ":*";
+        BazelClasspathManager.setClasspathContainer(project.getProject(), targetLabel);
     }
 
     @Override

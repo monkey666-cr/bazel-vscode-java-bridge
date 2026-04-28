@@ -60,6 +60,14 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                 if (!project.isOpen()) {
                     project.open(monitor);
                 }
+                org.eclipse.core.resources.IProjectDescription desc =
+                    project.getDescription();
+                String[] natureIds = desc.getNatureIds();
+                String[] newNatureIds = new String[natureIds.length + 1];
+                System.arraycopy(natureIds, 0, newNatureIds, 0, natureIds.length);
+                newNatureIds[natureIds.length] = "com.bazel.jdt.bazelNature";
+                desc.setNatureIds(newNatureIds);
+                project.setDescription(desc, monitor);
                 BazelClasspathManager.setClasspathContainer(project, targetLabel);
             } catch (Exception e) {
                 LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
@@ -70,6 +78,7 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
     @Override
     public void reset() {
+        BazelBridge.getInstance().shutdown();
     }
 
     private String extractPackageName(String targetLabel) {

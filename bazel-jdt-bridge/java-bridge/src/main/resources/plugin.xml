@@ -17,4 +17,12 @@
     <extension point="org.eclipse.jdt.ls.core.delegateCommandHandler">
         <delegateCommandHandler class="com.bazel.jdt.BazelCommandHandler"/>
     </extension>
+
+    <extension point="org.eclipse.core.resources.natures"
+               id="com.bazel.jdt.bazelNature"
+               name="Bazel Project Nature">
+        <runtime>
+            <run class="org.eclipse.core.resources.IProjectNature"/>
+        </runtime>
+    </extension>
 </plugin>

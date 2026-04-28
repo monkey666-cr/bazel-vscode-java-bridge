@@ -1,6 +1,7 @@
 Bundle-SymbolicName: com.bazel.jdt; singleton:=true
 Bundle-Version: 0.1.0
 Bundle-Name: Bazel JDT Bridge
+Bundle-Activator: com.bazel.jdt.BazelActivator
 Require-Bundle: org.eclipse.jdt.core, org.eclipse.jdt.ls.core
 Export-Package: com.bazel.jdt
 Bundle-NativeCode: \
