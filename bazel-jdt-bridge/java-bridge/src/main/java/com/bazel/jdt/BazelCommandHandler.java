@@ -27,6 +27,8 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 return handleCleanCache();
             case "bazel-jdt.getSyncState":
                 return BazelBridge.getInstance().getSyncState();
+            case "bazel-jdt.shutdown":
+                return handleShutdown();
             default:
                 return null;
         }
@@ -69,5 +71,15 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
             LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt", "Bazel cache clean failed", e));
             throw new RuntimeException("Bazel cache clean failed: " + e.getMessage(), e);
         }
+    }
+
+    private Object handleShutdown() {
+        try {
+            BazelBridge.getInstance().shutdown();
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt", "Bazel bridge shut down via command"));
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt", "Bazel bridge shutdown failed", e));
+        }
+        return null;
     }
 }

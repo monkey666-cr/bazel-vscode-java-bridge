@@ -42,4 +42,12 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
 }
 
-export function deactivate() {}
+export async function deactivate() {
+    try {
+        await vscode.commands.executeCommand(
+            'java.execute.workspaceCommand', 'bazel-jdt.shutdown'
+        );
+    } catch {
+        // LSP connection may already be disposed during deactivation — safe to ignore
+    }
+}
