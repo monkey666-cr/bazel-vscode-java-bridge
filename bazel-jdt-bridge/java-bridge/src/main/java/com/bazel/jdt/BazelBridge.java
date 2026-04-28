@@ -1,11 +1,18 @@
 package com.bazel.jdt;
 
+import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public final class BazelBridge {
     private static final BazelBridge INSTANCE = new BazelBridge();
+    private static final long JNI_TIMEOUT_SECONDS = 330;
     private long handle = -1;
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final ExecutorService jniExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "bazel-jdt-native");
+        t.setDaemon(true);
+        return t;
+    });
 
     static {
         NativeLoader.load();
@@ -33,6 +40,12 @@ public final class BazelBridge {
     public void shutdown() {
         rwLock.writeLock().lock();
         try {
+            jniExecutor.shutdownNow();
+            try {
+                jniExecutor.awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             if (handle != -1) {
                 nativeShutdown(handle);
                 handle = -1;
@@ -44,12 +57,36 @@ public final class BazelBridge {
 
     public String[] discoverTargets() {
         long h = snapshotHandle();
-        return nativeDiscoverTargets(h);
+        try {
+            return jniExecutor.submit(() -> nativeDiscoverTargets(h))
+                .get(JNI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted during discoverTargets", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            throw new RuntimeException("discoverTargets failed", cause);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("discoverTargets timed out", e);
+        }
     }
 
     public String[] computeClasspath(String targetLabel) {
         long h = snapshotHandle();
-        return nativeComputeClasspath(h, targetLabel);
+        try {
+            return jniExecutor.submit(() -> nativeComputeClasspath(h, targetLabel))
+                .get(JNI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted during computeClasspath", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            throw new RuntimeException("computeClasspath failed for " + targetLabel, cause);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("computeClasspath timed out for " + targetLabel, e);
+        }
     }
 
     private static final int SYNC_STATE_DEAD = 3;

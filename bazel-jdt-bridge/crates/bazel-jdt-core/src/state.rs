@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tokio::sync::watch;
 
 use crate::watcher::BuildFileWatcher;
 
@@ -37,6 +38,8 @@ pub struct BazelJdtState {
     pub query_timeout: Duration,
     /// Timeout for `bazel build --aspects` operations (default: 300s)
     pub aspect_timeout: Duration,
+    shutdown_tx: watch::Sender<bool>,
+    shutdown_rx: watch::Receiver<bool>,
 }
 
 impl BazelJdtState {
@@ -50,6 +53,7 @@ impl BazelJdtState {
         let parser = BuildFileParser::new();
         let invoker = BazelInvoker::new(bazel_path, &workspace_root);
         let runtime = Runtime::new()?;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         Ok(Self {
             cache,
@@ -66,6 +70,8 @@ impl BazelJdtState {
             pending_changes: Mutex::new(Vec::new()),
             query_timeout: Duration::from_secs(120),
             aspect_timeout: Duration::from_secs(300),
+            shutdown_tx,
+            shutdown_rx,
         })
     }
 
@@ -93,6 +99,14 @@ impl BazelJdtState {
 
     pub fn set_sync_state(&self, state: SyncState) {
         self.sync_state.store(state as i32, Ordering::SeqCst);
+    }
+
+    pub fn shutdown_signal(&self) -> watch::Receiver<bool> {
+        self.shutdown_rx.clone()
+    }
+
+    pub fn signal_shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
     }
 
     /// Parse all BUILD files in workspace and populate dependency graph.

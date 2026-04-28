@@ -206,6 +206,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeShutdown(
         {
             return;
         }
+        state.signal_shutdown();
         state.set_sync_state(SyncState::Dead);
         if let Some(mut watcher) = state
             .watcher
@@ -245,32 +246,31 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
     };
     state.set_sync_state(SyncState::Syncing);
 
-    let targets = match state.runtime.block_on(
-        tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets())
-    ) {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) => {
-            state.set_sync_state(SyncState::Error);
-            let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                format!(
-                    "Failed to discover targets: {}. \
-                     Try running 'bazel query //...:*' in the workspace to verify Java targets exist.",
-                    e
-                ),
-            );
-            return std::ptr::null_mut();
+    let mut shutdown_rx = state.shutdown_signal();
+    let targets = match state.runtime.block_on(async {
+        tokio::select! {
+            result = tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets()) => {
+                match result {
+                    Ok(Ok(t)) => Ok(t),
+                    Ok(Err(e)) => Err(format!(
+                        "Failed to discover targets: {}. Try running 'bazel query //...:*' in the workspace to verify Java targets exist.",
+                        e
+                    )),
+                    Err(_) => Err(format!(
+                        "Bazel query timed out after {}s. Try running 'bazel query //...:*' manually to check performance.",
+                        state.query_timeout.as_secs()
+                    )),
+                }
+            }
+            _ = shutdown_rx.changed() => {
+                Err("Operation cancelled: shutdown requested".to_string())
+            }
         }
-        Err(_) => {
+    }) {
+        Ok(t) => t,
+        Err(e) => {
             state.set_sync_state(SyncState::Error);
-            let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                format!(
-                    "Bazel query timed out after {}s. \
-                     Try running 'bazel query //...:*' manually to check performance.",
-                    state.query_timeout.as_secs()
-                ),
-            );
+            let _ = env.throw_new("java/lang/RuntimeException", e);
             return std::ptr::null_mut();
         }
     };
@@ -355,7 +355,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
         }
         Err(bazel_graph::GraphError::TargetNotFound { .. }) => {
             drop(graph);
-            match run_full_resolution(state, &label) {
+            match run_full_resolution(state, &label, state.shutdown_signal()) {
                 Ok(computed) => {
                     let entries = computed.to_pipe_delimited_entries();
                     if let Ok(json) = serde_json::to_string(&computed) {
@@ -468,23 +468,35 @@ fn infer_target_kind(label: &str) -> TargetKind {
 fn run_full_resolution(
     state: &BazelJdtState,
     target_label: &str,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<bazel_graph::ComputedClasspath, String> {
     let targets = vec![target_label.to_string()];
 
     let aspect_results = state
         .runtime
-        .block_on(tokio::time::timeout(
-            state.aspect_timeout,
-            state.invoker.resolve_full_classpath(&targets),
-        ))
-        .map_err(|_| {
-            format!(
-                "Bazel aspect build timed out after {}s for target '{}'",
-                state.aspect_timeout.as_secs(),
-                target_label
-            )
-        })?
-        .map_err(|e| format!("Bazel aspect build failed: {}", e))?;
+        .block_on(async {
+            tokio::select! {
+                result = tokio::time::timeout(
+                    state.aspect_timeout,
+                    state.invoker.resolve_full_classpath(&targets),
+                ) => {
+                    result.map_err(|_| {
+                        format!(
+                            "Bazel aspect build timed out after {}s for target '{}'",
+                            state.aspect_timeout.as_secs(),
+                            target_label
+                        )
+                    })?
+                    .map_err(|e| format!("Bazel aspect build failed: {}", e))
+                }
+                _ = shutdown_rx.changed() => {
+                    Err(format!(
+                        "Operation cancelled during aspect build for '{}'",
+                        target_label
+                    ))
+                }
+            }
+        })?;
 
     if aspect_results.is_empty() {
         return Err(format!(
