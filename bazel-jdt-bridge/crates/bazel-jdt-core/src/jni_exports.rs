@@ -492,14 +492,29 @@ fn run_full_resolution(
                 state.aspect_timeout,
                 state.invoker.resolve_full_classpath(&targets),
             ) => {
-                result.map_err(|_| {
+                result                .map_err(|_| {
                     format!(
                         "Bazel aspect build timed out after {}s for target '{}'",
                         state.aspect_timeout.as_secs(),
                         target_label
                     )
                 })?
-                .map_err(|e| format!("Bazel aspect build failed: {}", e))
+                .map_err(|e| {
+                    let err_str = format!("{}", e);
+                    let is_aspect_not_found = (err_str.contains("repository")
+                        && err_str.contains("not found"))
+                        || (err_str.contains("package")
+                            && err_str.contains("not found"));
+                    if is_aspect_not_found {
+                        format!(
+                            "Bazel aspect build failed: the IDE aspect files are missing. \
+                             Try running 'Bazel: Import Project' to re-extract them. Details: {}",
+                            err_str
+                        )
+                    } else {
+                        format!("Bazel aspect build failed: {}", err_str)
+                    }
+                })
             }
             _ = shutdown_rx.changed() => {
                 Err(format!(

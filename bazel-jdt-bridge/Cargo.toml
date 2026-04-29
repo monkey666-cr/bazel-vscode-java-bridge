@@ -25,6 +25,7 @@ notify = { version = "8.1", features = ["macos_kqueue"] }
 notify-debouncer-full = "0.5"
 jni = "0.21.1"
 sha2 = "0.10"
+tempfile = "3"
 log = "0.4"
 env_logger = "0.11"
 thiserror = "2"
