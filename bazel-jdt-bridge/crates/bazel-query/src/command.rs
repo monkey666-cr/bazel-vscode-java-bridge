@@ -41,18 +41,20 @@ pub enum BazelError {
 pub struct BazelInvoker {
     bazel_path: String,
     workspace_root: PathBuf,
+    aspect_label: String,
 }
 
 impl BazelInvoker {
-    pub fn new(bazel_path: &str, workspace_root: &Path) -> Self {
+    pub fn new(bazel_path: &str, workspace_root: &Path, aspect_label: &str) -> Self {
         Self {
             bazel_path: bazel_path.to_string(),
             workspace_root: workspace_root.to_path_buf(),
+            aspect_label: aspect_label.to_string(),
         }
     }
 
-    pub fn with_default_bazel(workspace_root: &Path) -> Self {
-        Self::new(bazel_binary_name(), workspace_root)
+    pub fn with_default_bazel(workspace_root: &Path, aspect_label: &str) -> Self {
+        Self::new(bazel_binary_name(), workspace_root, aspect_label)
     }
 
     /// Discover all Java targets in the workspace
@@ -132,12 +134,7 @@ impl BazelInvoker {
         }
 
         // Step 1: Build with IntelliJ aspects
-        let aspect_output = self
-            .build_with_aspects(
-                targets,
-                "@intellij_aspect//:intellij_info.bzl%intellij_info_java",
-            )
-            .await?;
+        let aspect_output = self.build_with_aspects(targets, &self.aspect_label).await?;
 
         // Step 2: Parse aspect output to get .intellij-info.txt file locations
         let info_files = crate::output::parse_aspect_output_locations(&aspect_output);
