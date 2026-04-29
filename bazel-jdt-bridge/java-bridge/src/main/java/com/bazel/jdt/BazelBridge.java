@@ -8,11 +8,15 @@ public final class BazelBridge {
     private static final long JNI_TIMEOUT_SECONDS = 330;
     private long handle = -1;
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
-    private final ExecutorService jniExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "bazel-jdt-native");
-        t.setDaemon(true);
-        return t;
-    });
+    private volatile ExecutorService jniExecutor = createExecutor();
+
+    private static ExecutorService createExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "bazel-jdt-native");
+            t.setDaemon(true);
+            return t;
+        });
+    }
 
     static {
         NativeLoader.load();
@@ -30,6 +34,9 @@ public final class BazelBridge {
             if (handle != -1) {
                 nativeShutdown(handle);
                 handle = -1;
+            }
+            if (jniExecutor.isShutdown() || jniExecutor.isTerminated()) {
+                jniExecutor = createExecutor();
             }
             handle = nativeInitialize(workspacePath, bazelPath, cacheDir);
         } finally {

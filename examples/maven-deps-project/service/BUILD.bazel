@@ -1,0 +1,12 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(default_visibility = ["//visibility:public"])
+
+java_library(
+    name = "user_service",
+    srcs = ["src/main/java/com/example/service/UserService.java"],
+    deps = [
+        "//utils:string_utils",
+        "@maven//:com_google_guava_guava",
+    ],
+)

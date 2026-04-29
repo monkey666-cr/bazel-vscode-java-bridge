@@ -1,0 +1,49 @@
+workspace(name = "maven_deps_project")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "rules_java",
+    sha256 = "b9c5ac9dfa76ab8e770ff8c979388878bf818afc850a8056fd7726a215354bf0",
+    strip_prefix = "rules_java-9.6.1",
+    url = "https://github.com/bazelbuild/rules_java/archive/refs/tags/9.6.1.tar.gz",
+)
+
+load("@rules_java//java:repositories.bzl", "rules_java_dependencies", "rules_java_toolchains")
+
+rules_java_dependencies()
+
+rules_java_toolchains()
+
+rules_jvm_external_version = "6.3"
+
+http_archive(
+    name = "rules_jvm_external",
+    strip_prefix = "rules_jvm_external-%s" % rules_jvm_external_version,
+    sha256 = "d31e9a496d8be7929cf7b7fae389a37a41f45e2f461efb99604e2a50e0f4d0df",
+    url = "https://github.com/bazelbuild/rules_jvm_external/releases/download/%s/rules_jvm_external-%s.tar.gz" % (rules_jvm_external_version, rules_jvm_external_version),
+)
+
+load("@rules_jvm_external//:repositories.bzl", "rules_jvm_external_deps")
+
+rules_jvm_external_deps()
+
+load("@rules_jvm_external//:setup.bzl", "rules_jvm_external_setup")
+
+rules_jvm_external_setup()
+
+load("@rules_jvm_external//:defs.bzl", "maven_install")
+
+maven_install(
+    name = "maven",
+    artifacts = [
+        "com.google.guava:guava:33.4.0-jre",
+        "com.google.guava:failureaccess:1.0.2",
+        "com.google.errorprone:error_prone_annotations:2.36.0",
+        "junit:junit:4.13.2",
+        "org.hamcrest:hamcrest:2.2",
+    ],
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)

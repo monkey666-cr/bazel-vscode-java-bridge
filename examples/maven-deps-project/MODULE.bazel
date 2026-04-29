@@ -1,0 +1,21 @@
+module(name = "maven_deps_project", version = "1.0.0")
+
+bazel_dep(name = "rules_java", version = "9.6.1")
+bazel_dep(name = "rules_jvm_external", version = "6.3")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+maven.install(
+    artifacts = [
+        "com.google.guava:guava:33.4.0-jre",
+        "com.google.guava:failureaccess:1.0.2",
+        "com.google.errorprone:error_prone_annotations:2.36.0",
+        "junit:junit:4.13.2",
+        "org.hamcrest:hamcrest:2.2",
+    ],
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)
+
+use_repo(maven, "maven")

@@ -1,0 +1,14 @@
+load("@rules_java//java:defs.bzl", "java_test")
+
+java_test(
+    name = "string_utils_test",
+    srcs = ["src/test/java/com/example/utils/StringUtilsTest.java"],
+    deps = [
+        "//utils:string_utils",
+        "@maven//:com_google_guava_guava",
+        "@maven//:junit_junit",
+        "@maven//:org_hamcrest_hamcrest",
+    ],
+    test_class = "com.example.utils.StringUtilsTest",
+    visibility = ["//visibility:public"],
+)

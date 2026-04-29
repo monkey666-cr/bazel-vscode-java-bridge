@@ -1,0 +1,11 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(default_visibility = ["//visibility:public"])
+
+java_library(
+    name = "api_interfaces",
+    srcs = [
+        "src/main/java/com/example/api/UserService.java",
+        "src/main/java/com/example/api/DataModel.java",
+    ],
+)

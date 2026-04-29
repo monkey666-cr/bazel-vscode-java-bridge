@@ -1,0 +1,12 @@
+load("@rules_java//java:defs.bzl", "java_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+java_binary(
+    name = "server",
+    srcs = ["src/main/java/com/example/server/ServerMain.java"],
+    deps = [
+        "//core:core_impl",
+    ],
+    main_class = "com.example.server.ServerMain",
+)

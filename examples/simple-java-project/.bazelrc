@@ -1,0 +1,2 @@
+# Configure JDK for rules_java toolchain auto-detection
+common --repo_env=JAVA_HOME=/usr/lib/jvm/jdk-17-oracle-x64

@@ -1,0 +1,27 @@
+load("@rules_java//java:defs.bzl", "java_test")
+
+java_test(
+    name = "user_service_impl_test",
+    srcs = ["src/test/java/com/example/integration/UserServiceImplTest.java"],
+    deps = [
+        "//api:api_interfaces",
+        "//core:core_impl",
+        "@maven//:junit_junit",
+        "@maven//:org_hamcrest_hamcrest",
+    ],
+    test_class = "com.example.integration.UserServiceImplTest",
+    visibility = ["//visibility:public"],
+)
+
+java_test(
+    name = "data_processor_test",
+    srcs = ["src/test/java/com/example/integration/DataProcessorTest.java"],
+    deps = [
+        "//api:api_interfaces",
+        "//core:core_impl",
+        "@maven//:junit_junit",
+        "@maven//:org_hamcrest_hamcrest",
+    ],
+    test_class = "com.example.integration.DataProcessorTest",
+    visibility = ["//visibility:public"],
+)

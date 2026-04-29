@@ -1,11 +1,50 @@
 use crate::state::{BazelJdtState, SyncState};
 use crate::watcher::BuildFileWatcher;
-use std::sync::atomic::Ordering;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use bazel_graph::TargetKind;
 use jni::objects::{JClass, JObject, JString};
 use jni::sys::{jint, jlong, jobjectArray, jsize};
 use jni::JNIEnv;
+
+static REGISTRY: OnceLock<Mutex<HashMap<u64, Box<BazelJdtState>>>> = OnceLock::new();
+static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
+
+fn registry() -> &'static Mutex<HashMap<u64, Box<BazelJdtState>>> {
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_key() -> u64 {
+    NEXT_KEY.fetch_add(1, Ordering::Relaxed)
+}
+
+fn get_state(env: &mut JNIEnv, handle: jlong) -> Option<&'static BazelJdtState> {
+    if handle <= 0 {
+        let _ = env.throw_new("java/lang/IllegalStateException", "Not initialized");
+        return None;
+    }
+    let key = handle as u64;
+    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    match reg.get(&key) {
+        Some(state) => {
+            // SAFETY: The Box lives in the registry until nativeShutdown
+            // removes it. We return a &'static ref that is valid as long as
+            // the entry remains in the registry. JNI functions never hold
+            // this reference across calls, so this is safe.
+            let ptr: *const BazelJdtState = &**state;
+            Some(unsafe { &*ptr })
+        }
+        None => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "Invalid or expired handle",
+            );
+            None
+        }
+    }
+}
 
 fn create_string_array(
     env: &mut JNIEnv,
@@ -18,44 +57,6 @@ fn create_string_array(
         env.set_object_array_element(&array, i as jsize, java_str)?;
     }
     Ok(array.into_raw())
-}
-
-fn encode_handle(generation: u32, ptr: *mut BazelJdtState) -> jlong {
-    (((generation as u64) << 32) | (ptr as u64)) as jlong
-}
-
-fn decode_handle(handle: jlong) -> (u32, *mut BazelJdtState) {
-    let gen = (handle >> 32) as u32;
-    let ptr = (handle & 0xFFFFFFFF) as *mut BazelJdtState;
-    (gen, ptr)
-}
-
-fn get_valid_state(env: &mut JNIEnv, handle: jlong) -> Option<&'static BazelJdtState> {
-    if handle == -1 {
-        let _ = env.throw_new("java/lang/IllegalStateException", "Not initialized");
-        return None;
-    }
-    let (gen, ptr) = decode_handle(handle);
-    if ptr.is_null() {
-        let _ = env.throw_new("java/lang/IllegalStateException", "Invalid handle");
-        return None;
-    }
-    let state = unsafe { &*ptr };
-    if state.is_shutdown() {
-        let _ = env.throw_new(
-            "java/lang/IllegalStateException",
-            "Native library has been shut down",
-        );
-        return None;
-    }
-    if state.current_generation() != gen {
-        let _ = env.throw_new(
-            "java/lang/IllegalStateException",
-            "Stale handle: state has been re-initialized",
-        );
-        return None;
-    }
-    Some(state)
 }
 
 #[no_mangle]
@@ -119,13 +120,23 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeInitialize(
         }
     }
 
+    let key = next_key();
     let workspace_root = state.workspace_root.clone();
-    let state_ptr: usize = &state as *const BazelJdtState as usize;
-    match BuildFileWatcher::start(
-        workspace_root,
+
+    {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        reg.insert(key, Box::new(state));
+    }
+
+    let watcher_cb: Box<dyn Fn(Vec<std::path::PathBuf>) + Send + 'static> = {
+        let cb_key = key;
         Box::new(move |paths| {
             log::info!("Build files changed: {:?}", paths);
-            let state = unsafe { &*(state_ptr as *const BazelJdtState) };
+            let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+            let state = match reg.get(&cb_key) {
+                Some(s) => s,
+                None => return,
+            };
             if state.is_shutdown() {
                 return;
             }
@@ -169,19 +180,23 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeInitialize(
                     let _ = state.cache.put_build_hash(&path_str, &hash);
                 }
             }
-        }),
-    ) {
-        Ok(watcher) => {
-            *state.watcher.lock().unwrap_or_else(|e| e.into_inner()) = Some(watcher);
-        }
-        Err(e) => {
-            log::warn!("Failed to start file watcher: {}", e);
+        })
+    };
+
+    {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        let state = reg.get_mut(&key).expect("key just inserted");
+        match BuildFileWatcher::start(workspace_root, watcher_cb) {
+            Ok(watcher) => {
+                *state.watcher.lock().unwrap_or_else(|e| e.into_inner()) = Some(watcher);
+            }
+            Err(e) => {
+                log::warn!("Failed to start file watcher: {}", e);
+            }
         }
     }
 
-    let gen = state.next_generation();
-    let ptr = Box::into_raw(Box::new(state));
-    encode_handle(gen, ptr)
+    key as jlong
 }
 
 #[no_mangle]
@@ -190,47 +205,46 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeShutdown(
     _class: JClass,
     handle: jlong,
 ) {
-    if handle == -1 {
+    if handle <= 0 {
         return;
     }
-    let (_, ptr) = decode_handle(handle);
-    if ptr.is_null() {
-        return;
-    }
-    unsafe {
-        let state = &*ptr;
-        if state
-            .shutdown_flag
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
+    let key = handle as u64;
+
+    let mut state_box = {
+        let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+        match reg.remove(&key) {
+            Some(b) => b,
+            None => return,
         }
-        state.signal_shutdown();
-        state.set_sync_state(SyncState::Dead);
-        if let Some(mut watcher) = state
-            .watcher
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
-            if let Some(join_handle) = watcher.stop_nonblocking() {
-                *state
-                    .watcher_join_handle
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()) = Some(join_handle);
-            }
+    };
+
+    let state = &mut *state_box;
+    state.signal_shutdown();
+    state.set_sync_state(SyncState::Dead);
+
+    let join_handle = {
+        let mut watcher_opt = state.watcher.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(mut watcher) = watcher_opt.take() {
+            watcher.stop_nonblocking()
+        } else {
+            None
         }
-        if let Some(join_handle) = state
+    };
+
+    if let Some(jh) = join_handle {
+        *state
             .watcher_join_handle
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
-            let _ = join_handle.join();
-        }
-        let state = Box::from_raw(ptr);
-        drop(state);
+            .unwrap_or_else(|e| e.into_inner()) = Some(jh);
+    }
+
+    let jh = state
+        .watcher_join_handle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(join_handle) = jh {
+        let _ = join_handle.join();
     }
 }
 
@@ -240,7 +254,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
     _class: JClass,
     handle: jlong,
 ) -> jobjectArray {
-    let state = match get_valid_state(&mut env, handle) {
+    let state = match get_state(&mut env, handle) {
         Some(s) => s,
         None => return std::ptr::null_mut(),
     };
@@ -303,7 +317,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
     handle: jlong,
     target_label: JString,
 ) -> jobjectArray {
-    let state = match get_valid_state(&mut env, handle) {
+    let state = match get_state(&mut env, handle) {
         Some(s) => s,
         None => return std::ptr::null_mut(),
     };
@@ -402,7 +416,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeGetSyncState(
     _class: JClass,
     handle: jlong,
 ) -> jint {
-    let state = match get_valid_state(&mut env, handle) {
+    let state = match get_state(&mut env, handle) {
         Some(s) => s,
         None => return SyncState::Dead as jint,
     };
@@ -415,7 +429,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeCleanCache(
     _class: JClass,
     handle: jlong,
 ) {
-    let state = match get_valid_state(&mut env, handle) {
+    let state = match get_state(&mut env, handle) {
         Some(s) => s,
         None => return,
     };
@@ -434,7 +448,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeGetPendingChanges(
     _class: JClass,
     handle: jlong,
 ) -> jobjectArray {
-    let state = match get_valid_state(&mut env, handle) {
+    let state = match get_state(&mut env, handle) {
         Some(s) => s,
         None => return std::ptr::null_mut(),
     };
@@ -472,31 +486,29 @@ fn run_full_resolution(
 ) -> Result<bazel_graph::ComputedClasspath, String> {
     let targets = vec![target_label.to_string()];
 
-    let aspect_results = state
-        .runtime
-        .block_on(async {
-            tokio::select! {
-                result = tokio::time::timeout(
-                    state.aspect_timeout,
-                    state.invoker.resolve_full_classpath(&targets),
-                ) => {
-                    result.map_err(|_| {
-                        format!(
-                            "Bazel aspect build timed out after {}s for target '{}'",
-                            state.aspect_timeout.as_secs(),
-                            target_label
-                        )
-                    })?
-                    .map_err(|e| format!("Bazel aspect build failed: {}", e))
-                }
-                _ = shutdown_rx.changed() => {
-                    Err(format!(
-                        "Operation cancelled during aspect build for '{}'",
+    let aspect_results = state.runtime.block_on(async {
+        tokio::select! {
+            result = tokio::time::timeout(
+                state.aspect_timeout,
+                state.invoker.resolve_full_classpath(&targets),
+            ) => {
+                result.map_err(|_| {
+                    format!(
+                        "Bazel aspect build timed out after {}s for target '{}'",
+                        state.aspect_timeout.as_secs(),
                         target_label
-                    ))
-                }
+                    )
+                })?
+                .map_err(|e| format!("Bazel aspect build failed: {}", e))
             }
-        })?;
+            _ = shutdown_rx.changed() => {
+                Err(format!(
+                    "Operation cancelled during aspect build for '{}'",
+                    target_label
+                ))
+            }
+        }
+    })?;
 
     if aspect_results.is_empty() {
         return Err(format!(

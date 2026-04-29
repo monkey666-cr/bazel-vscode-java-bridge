@@ -1,0 +1,2 @@
+# Root BUILD file — no targets at root level.
+# All Java targets are in sub-packages.

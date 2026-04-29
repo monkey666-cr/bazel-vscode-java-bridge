@@ -1,0 +1,17 @@
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(default_visibility = ["//visibility:public"])
+
+java_library(
+    name = "core_impl",
+    srcs = [
+        "src/main/java/com/example/core/UserServiceImpl.java",
+        "src/main/java/com/example/core/DataProcessor.java",
+    ],
+    deps = [
+        "//api:api_interfaces",
+        "@maven//:com_google_guava_guava",
+    ],
+    exports = ["//api:api_interfaces"],
+    resources = ["src/main/resources/config.properties"],
+)

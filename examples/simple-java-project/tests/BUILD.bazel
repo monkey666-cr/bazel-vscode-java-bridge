@@ -1,0 +1,10 @@
+load("@rules_java//java:defs.bzl", "java_test")
+
+java_test(
+    name = "greeter_test",
+    srcs = ["src/test/java/com/example/greeter/GreeterTest.java"],
+    deps = ["//greeter:greeter"],
+    main_class = "com.example.greeter.GreeterTest",
+    use_testrunner = False,
+    visibility = ["//visibility:public"],
+)

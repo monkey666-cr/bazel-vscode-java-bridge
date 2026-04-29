@@ -78,7 +78,9 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
     @Override
     public void reset() {
-        BazelBridge.getInstance().shutdown();
+        // No-op: BazelBridge.initialize() in importToWorkspace() handles native handle
+        // lifecycle. Calling shutdown() here would permanently kill the executor, making
+        // subsequent discoverTargets() calls fail with RejectedExecutionException.
     }
 
     private String extractPackageName(String targetLabel) {
