@@ -73,7 +73,7 @@ pub fn extract_if_needed(workspace_root: &Path) -> Result<String, AspectError> {
     }
 
     let label = format!(
-        "//{}/intellij_info_bundled.bzl%intellij_info_aspect",
+        "//{}:intellij_info_bundled.bzl%intellij_info_aspect",
         ASPECT_DIR_NAME
     );
     Ok(label)
@@ -122,7 +122,7 @@ mod tests {
         let label = extract_if_needed(tmp.path()).unwrap();
 
         assert!(label.contains("intellij_info_bundled.bzl%intellij_info_aspect"));
-        assert!(label.starts_with("//.bazel-jdt/aspects"));
+        assert!(label.starts_with("//.bazel-jdt/aspects:intellij_info_bundled.bzl"));
 
         let aspect_dir = tmp.path().join(ASPECT_DIR_NAME);
         assert!(aspect_dir.join("BUILD").exists());
