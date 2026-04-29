@@ -28,6 +28,7 @@ pub struct BazelJdtState {
     pub invoker: BazelInvoker,
     pub runtime: Runtime,
     pub workspace_root: PathBuf,
+    pub aspect_label: String,
     pub sync_state: AtomicI32,
     pub watcher: Mutex<Option<BuildFileWatcher>>,
     pub watcher_join_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -50,7 +51,23 @@ impl BazelJdtState {
         let cache = BazelCache::open(cache_dir)?;
         let graph = DependencyGraph::new();
         let parser = BuildFileParser::new();
-        let invoker = BazelInvoker::new(bazel_path, &workspace_root);
+
+        let aspect_label = match crate::aspect::extract_if_needed(&workspace_root) {
+            Ok(label) => label,
+            Err(e) => {
+                log::warn!(
+                    "Failed to extract aspect files: {}. Falling back to @intellij_aspect.",
+                    e
+                );
+                "@intellij_aspect//:intellij_info.bzl%intellij_info_java".to_string()
+            }
+        };
+
+        if let Some(warning) = crate::aspect::check_bazelignore(&workspace_root) {
+            log::warn!("{}", warning);
+        }
+
+        let invoker = BazelInvoker::new(bazel_path, &workspace_root, &aspect_label);
         let runtime = Runtime::new()?;
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -61,6 +78,7 @@ impl BazelJdtState {
             invoker,
             runtime,
             workspace_root,
+            aspect_label,
             sync_state: AtomicI32::new(SyncState::Idle as i32),
             watcher: Mutex::new(None),
             watcher_join_handle: Mutex::new(None),
