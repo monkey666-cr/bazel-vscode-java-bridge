@@ -18,6 +18,9 @@ const ASPECT_INTELLIJ_INFO_IMPL_BUNDLED: &str =
     include_str!("aspects/intellij_info_impl_bundled.bzl");
 const ASPECT_ARTIFACTS: &str = include_str!("aspects/artifacts.bzl");
 const ASPECT_MAKE_VARIABLES: &str = include_str!("aspects/make_variables.bzl");
+const ASPECT_CC_INFO: &str = include_str!("aspects/cc_info.bzl");
+const ASPECT_CODE_GENERATOR_INFO: &str = include_str!("aspects/code_generator_info.bzl");
+const ASPECT_PYTHON_INFO: &str = include_str!("aspects/python_info.bzl");
 
 fn aspect_files() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -29,6 +32,9 @@ fn aspect_files() -> Vec<(&'static str, &'static str)> {
         ),
         ("artifacts.bzl", ASPECT_ARTIFACTS),
         ("make_variables.bzl", ASPECT_MAKE_VARIABLES),
+        ("cc_info.bzl", ASPECT_CC_INFO),
+        ("code_generator_info.bzl", ASPECT_CODE_GENERATOR_INFO),
+        ("python_info.bzl", ASPECT_PYTHON_INFO),
     ]
 }
 
@@ -130,6 +136,9 @@ mod tests {
         assert!(aspect_dir.join("intellij_info_impl_bundled.bzl").exists());
         assert!(aspect_dir.join("artifacts.bzl").exists());
         assert!(aspect_dir.join("make_variables.bzl").exists());
+        assert!(aspect_dir.join("cc_info.bzl").exists());
+        assert!(aspect_dir.join("code_generator_info.bzl").exists());
+        assert!(aspect_dir.join("python_info.bzl").exists());
         assert!(aspect_dir.join(".version").exists());
 
         let build_content = fs::read_to_string(aspect_dir.join("BUILD")).unwrap();
