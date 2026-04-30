@@ -343,59 +343,41 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
                 };
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to deserialize cached classpath for {}: {}",
-                    label,
-                    e
-                );
+                log::warn!("Failed to deserialize cached classpath for {}: {}", label, e);
             }
         }
     }
 
     let target_kind = infer_target_kind(&label);
+
     let graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
-    match bazel_graph::ComputedClasspath::compute_for(&graph, &label, target_kind) {
-        Ok(computed) => {
-            let has_jars = computed.entries.iter().any(|e| {
-                matches!(e.entry_type, bazel_graph::ClasspathEntryType::Library)
-            });
-            if !has_jars {
-                // Fast path (BUILD file parsing) produced no JAR info — fall through
-                // to slow path (aspect resolution) to get actual compiled JARs.
-                drop(graph);
-                log::info!(
-                    "Fast path produced no LIB entries for '{}', falling back to aspect resolution",
-                    label
-                );
-                return match run_full_resolution(state, &label, state.shutdown_signal()) {
-                    Ok(resolved) => {
-                        let entries = resolved.to_pipe_delimited_entries();
-                        if let Ok(json) = serde_json::to_string(&resolved) {
-                            let _ = state.cache.put_classpath(&label, &json);
-                        }
-                        state.set_sync_state(SyncState::Idle);
-                        match create_string_array(&mut env, &entries) {
-                            Ok(arr) => arr,
-                            Err(_) => std::ptr::null_mut(),
-                        }
-                    }
-                    Err(resolution_err) => {
-                        state.set_sync_state(SyncState::Error);
-                        let _ = env.throw_new(
-                            "java/lang/RuntimeException",
-                            format!(
-                                "Classpath resolution failed for '{}': {}. \
-                                 Try running 'bazel-jdt.cleanCache' then reimporting.",
-                                label, resolution_err
-                            ),
-                        );
-                        std::ptr::null_mut()
-                    }
+    let has_aspect_data = graph.get_target_jars(&label).is_some();
+    drop(graph);
+
+    if has_aspect_data {
+        let graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
+        match bazel_graph::ComputedClasspath::compute_for(&graph, &label, target_kind) {
+            Ok(computed) => {
+                let entries = computed.to_pipe_delimited_entries();
+                if let Ok(json) = serde_json::to_string(&computed) {
+                    let _ = state.cache.put_classpath(&label, &json);
+                }
+                state.set_sync_state(SyncState::Idle);
+                return match create_string_array(&mut env, &entries) {
+                    Ok(arr) => arr,
+                    Err(_) => std::ptr::null_mut(),
                 };
             }
-            let entries = computed.to_pipe_delimited_entries();
-            drop(graph);
-            if let Ok(json) = serde_json::to_string(&computed) {
+            Err(e) => {
+                log::warn!("Graph compute_for failed for {}: {}", label, e);
+            }
+        }
+    }
+
+    match run_full_resolution(state, &label, state.shutdown_signal()) {
+        Ok(resolved) => {
+            let entries = resolved.to_pipe_delimited_entries();
+            if let Ok(json) = serde_json::to_string(&resolved) {
                 let _ = state.cache.put_classpath(&label, &json);
             }
             state.set_sync_state(SyncState::Idle);
@@ -404,42 +386,14 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
                 Err(_) => std::ptr::null_mut(),
             }
         }
-        Err(bazel_graph::GraphError::TargetNotFound { .. }) => {
-            drop(graph);
-            match run_full_resolution(state, &label, state.shutdown_signal()) {
-                Ok(computed) => {
-                    let entries = computed.to_pipe_delimited_entries();
-                    if let Ok(json) = serde_json::to_string(&computed) {
-                        let _ = state.cache.put_classpath(&label, &json);
-                    }
-                    state.set_sync_state(SyncState::Idle);
-                    match create_string_array(&mut env, &entries) {
-                        Ok(arr) => arr,
-                        Err(_) => std::ptr::null_mut(),
-                    }
-                }
-                Err(resolution_err) => {
-                    state.set_sync_state(SyncState::Error);
-                    let _ = env.throw_new(
-                        "java/lang/RuntimeException",
-                        format!(
-                            "Classpath resolution failed for '{}': {}. \
-                             Try running 'bazel-jdt.cleanCache' then reimporting.",
-                            label, resolution_err
-                        ),
-                    );
-                    std::ptr::null_mut()
-                }
-            }
-        }
-        Err(e) => {
+        Err(resolution_err) => {
             state.set_sync_state(SyncState::Error);
             let _ = env.throw_new(
                 "java/lang/RuntimeException",
                 format!(
-                    "Failed to compute classpath for '{}': {}. \
-                     Check that the target exists and its dependencies are valid.",
-                    label, e
+                    "Classpath resolution failed for '{}': {}. \
+                     Try running 'bazel-jdt.cleanCache' then reimporting.",
+                    label, resolution_err
                 ),
             );
             std::ptr::null_mut()
@@ -529,7 +483,8 @@ fn run_full_resolution(
                 state.aspect_timeout,
                 state.invoker.resolve_full_classpath(&targets),
             ) => {
-                result                .map_err(|_| {
+                result
+                .map_err(|_| {
                     format!(
                         "Bazel aspect build timed out after {}s for target '{}'",
                         state.aspect_timeout.as_secs(),

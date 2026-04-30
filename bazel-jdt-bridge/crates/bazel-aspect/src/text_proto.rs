@@ -372,6 +372,13 @@ impl<'a> TextProtoParser<'a> {
         if let Some(ProtoValue::String(s)) = fields.remove("label") {
             result.value.label = s;
         }
+        if result.value.label.is_empty() {
+            if let Some(ProtoValue::Message(key_msg)) = fields.remove("key") {
+                if let Some(ProtoValue::String(s)) = key_msg.get("label") {
+                    result.value.label = s.clone();
+                }
+            }
+        }
         if let Some(ProtoValue::String(s)) = fields.remove("kind") {
             result.value.kind = s;
         }
@@ -640,6 +647,9 @@ impl<'a> TextProtoParser<'a> {
         if let Some(ProtoValue::String(s)) = fields.get("root_execution_path_fragment") {
             loc.root_execution_path_fragment = Some(s.clone());
         }
+        if let Some(ProtoValue::String(s)) = fields.get("root_path") {
+            loc.root_path = Some(s.clone());
+        }
 
         loc
     }
@@ -901,6 +911,60 @@ mod tests {
         let result = parse_text_proto(input);
         assert_eq!(result.value.runtime_deps, vec!["//runtime:lib"]);
         assert_eq!(result.value.exports, vec!["//exported:api"]);
+    }
+
+    #[test]
+    fn test_parse_label_from_key_block() {
+        let input = r#"
+key {
+  configuration: "91e2498"
+  label: "//greeter:greeter"
+}
+kind: "java_library"
+java_ide_info {
+  jars {
+    jar {
+      relative_path: "greeter/libgreeter.jar"
+      root_path: "bazel-out/k8-fastbuild/bin"
+    }
+  }
+}
+"#;
+
+        let result = parse_text_proto(input);
+        assert_eq!(result.value.label, "//greeter:greeter");
+        assert_eq!(result.value.kind, "java_library");
+        assert!(result.value.java_info.is_some());
+
+        let java_info = result.value.java_info.as_ref().unwrap();
+        assert_eq!(java_info.jars.len(), 1);
+        assert_eq!(
+            java_info.jars[0].jar.best_path(),
+            Some("bazel-out/k8-fastbuild/bin/greeter/libgreeter.jar".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_label_from_key_block_with_deps() {
+        let input = r#"
+key {
+  configuration: "abc123"
+  label: "//app:app"
+}
+kind: "java_binary"
+deps {
+  dependency_type: 0
+  target {
+    label: "//greeter:greeter"
+    configuration: "k8"
+  }
+}
+"#;
+
+        let result = parse_text_proto(input);
+        assert_eq!(result.value.label, "//app:app");
+        assert_eq!(result.value.kind, "java_binary");
+        assert_eq!(result.value.deps, vec!["//greeter:greeter"]);
     }
 
     #[test]

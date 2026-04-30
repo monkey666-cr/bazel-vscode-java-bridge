@@ -17,12 +17,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SKIP_TS=false
 SKIP_RUST=false
+CLEAN=false
 
 # --- Parse args ---
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-ts)     SKIP_TS=true;   shift ;;
         --skip-rust)   SKIP_RUST=true; shift ;;
+        --clean)       CLEAN=true;     shift ;;
         --help|-h)
             cat <<EOF
 Usage: $0 [OPTIONS]
@@ -30,6 +32,7 @@ Usage: $0 [OPTIONS]
 Options:
   --skip-ts     Skip TypeScript build (only Rust + Java)
   --skip-rust   Skip Rust rebuild (only Java + TS)
+  --clean       Clear redb cache and extracted aspect dirs before building
   --help        Show this help
 
 Output:
@@ -46,6 +49,23 @@ done
 
 echo "=== Bazel JDT Bridge — Debug Build ==="
 echo ""
+
+# --- Step 0: Clean caches (optional) ---
+if [[ "$CLEAN" == true ]]; then
+    echo "--- [clean] Clearing caches ---"
+    cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/bazel-jdt"
+    rm -f "$cache_dir/bazel-jdt-cache.redb"
+    echo "  Cleared $cache_dir/bazel-jdt-cache.redb"
+    # Remove extracted aspect dirs from known workspace examples
+    for ws in "$PROJECT_ROOT"/../examples/*/; do
+        aspect_dir="$ws/.bazel-jdt/aspects"
+        if [[ -d "$aspect_dir" ]]; then
+            rm -rf "$aspect_dir"
+            echo "  Cleared $aspect_dir"
+        fi
+    done
+    echo ""
+fi
 
 # --- Step 1: Rust native library ---
 if [[ "$SKIP_RUST" == false ]]; then

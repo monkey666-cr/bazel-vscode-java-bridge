@@ -135,7 +135,7 @@ impl DependencyGraph {
                 let jars: Vec<String> = java_info
                     .jars
                     .iter()
-                    .filter_map(|j| j.jar.best_path().map(|p| p.to_string()))
+                    .filter_map(|j| j.jar.best_path())
                     .collect();
                 if !jars.is_empty() {
                     self.set_target_jars(label, jars);

@@ -65,14 +65,21 @@ pub struct ArtifactLocation {
     pub is_source: bool,
     pub is_external: bool,
     pub root_execution_path_fragment: Option<String>,
+    pub root_path: Option<String>,
 }
 
 impl ArtifactLocation {
-    /// Get the best available path for this artifact
-    pub fn best_path(&self) -> Option<&str> {
-        self.absolute_path
-            .as_deref()
-            .or(self.relative_path.as_deref())
+    /// Get the best available path for this artifact.
+    /// Combines root_path + relative_path when absolute_path is not set.
+    pub fn best_path(&self) -> Option<String> {
+        if let Some(ref abs) = self.absolute_path {
+            return Some(abs.clone());
+        }
+        match (&self.root_path, &self.relative_path) {
+            (Some(root), Some(rel)) => Some(format!("{}/{}", root.trim_end_matches('/'), rel.trim_start_matches('/'))),
+            (_, Some(rel)) => Some(rel.clone()),
+            _ => None,
+        }
     }
 }
 

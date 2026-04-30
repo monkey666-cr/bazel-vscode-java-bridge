@@ -33,6 +33,14 @@ public class BazelClasspathManager {
                 return;
             }
             String[] rawEntries = bridge.computeClasspath(targetLabel);
+            StringBuilder sb = new StringBuilder();
+            sb.append("Classpath for '").append(targetLabel).append("' (").append(rawEntries == null ? "null" : rawEntries.length).append(" entries):");
+            if (rawEntries != null) {
+                for (String e : rawEntries) {
+                    sb.append("\n  ").append(e);
+                }
+            }
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt", sb.toString()));
             BazelClasspathContainer container = new BazelClasspathContainer(rawEntries);
             JavaCore.setClasspathContainer(
                 BazelClasspathContainer.CONTAINER_PATH,
@@ -42,7 +50,7 @@ public class BazelClasspathManager {
             );
         } catch (Exception e) {
             LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
-                "Failed to set classpath container for " + targetLabel, e));
+                "FAILED setClasspathContainer for " + targetLabel + " in project " + project.getName() + ": " + e.getMessage(), e));
         }
     }
 

@@ -86,7 +86,8 @@ impl BazelInvoker {
         Ok(targets)
     }
 
-    /// Build targets with IntelliJ aspects to get dependency info
+    /// Build targets with IntelliJ aspects to get dependency info.
+    /// Bazel writes aspect output file paths to stderr, not stdout.
     pub async fn build_with_aspects(
         &self,
         targets: &[String],
@@ -100,12 +101,12 @@ impl BazelInvoker {
                 "build",
                 &format!("--aspects={}", aspect_file),
                 "--output_groups=intellij-info-java,intellij-info-generic",
+                "--show_result=100",
                 &targets_arg,
             ])
             .output()
             .await?;
 
-        let stdout = String::from_utf8(output.stdout)?;
         let stderr = String::from_utf8(output.stderr)?;
 
         if !output.status.success() {
@@ -114,7 +115,7 @@ impl BazelInvoker {
             });
         }
 
-        Ok(stdout)
+        Ok(stderr)
     }
 
     /// Get the execution root path for this workspace (e.g., for locating bazel-out artifacts)
@@ -128,24 +129,23 @@ impl BazelInvoker {
         &self,
         targets: &[String],
     ) -> Result<Vec<TargetIdeInfo>, BazelError> {
-        // If no targets, return empty
         if targets.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Step 1: Build with IntelliJ aspects
         let aspect_output = self.build_with_aspects(targets, &self.aspect_label).await?;
 
-        // Step 2: Parse aspect output to get .intellij-info.txt file locations
         let info_files = crate::output::parse_aspect_output_locations(&aspect_output);
 
-        // Step 3: Read and parse each info file
         let mut results = Vec::new();
         for info_path in &info_files {
             let normalized_path = normalize_path_separators(info_path);
-            match tokio::fs::read_to_string(&normalized_path).await {
+            let absolute_path = self.workspace_root.join(&normalized_path);
+            match tokio::fs::read_to_string(&absolute_path).await {
                 Ok(content) => {
-                    let target_info = bazel_aspect::text_proto::parse_text_proto_quiet(&content);
+                    let mut target_info =
+                        bazel_aspect::text_proto::parse_text_proto_quiet(&content);
+                    resolve_artifact_paths(&mut target_info, &self.workspace_root);
                     results.push(target_info);
                 }
                 Err(e) => {
@@ -160,5 +160,46 @@ impl BazelInvoker {
         }
 
         Ok(results)
+    }
+}
+
+fn resolve_artifact_paths(info: &mut bazel_aspect::TargetIdeInfo, workspace_root: &Path) {
+    let resolve_loc = |loc: &mut bazel_aspect::ArtifactLocation| {
+        if loc.absolute_path.is_none() {
+            if let Some(combined) = loc.best_path() {
+                let absolute = workspace_root.join(&combined);
+                loc.absolute_path = Some(absolute.to_string_lossy().into_owned());
+            }
+        }
+    };
+
+    if let Some(ref mut java) = info.java_info {
+        for jar in &mut java.jars {
+            resolve_loc(&mut jar.jar);
+            if let Some(ref mut src) = jar.source_jar {
+                resolve_loc(src);
+            }
+            if let Some(ref mut iface) = jar.interface_jar {
+                resolve_loc(iface);
+            }
+        }
+        for loc in &mut java.sources {
+            resolve_loc(loc);
+        }
+        for loc in &mut java.compile_jars {
+            resolve_loc(loc);
+        }
+        for loc in &mut java.runtime_jars {
+            resolve_loc(loc);
+        }
+        for loc in &mut java.source_jars {
+            resolve_loc(loc);
+        }
+        for jar in &mut java.generated_jars {
+            resolve_loc(&mut jar.jar);
+            if let Some(ref mut src) = jar.source_jar {
+                resolve_loc(src);
+            }
+        }
     }
 }

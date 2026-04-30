@@ -21,6 +21,9 @@ load(
 )
 load(":python_info.bzl", "get_py_info", "py_info_in_target")
 
+# JavaInfo was a global built-in in Bazel <= 8. In Bazel 9+, it moved to rules_java.
+load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+
 IntelliJInfo = provider(
     doc = "Collected information about the targets visited by the aspect.",
     fields = [
@@ -419,6 +422,13 @@ def _collect_java_output_jars(target):
 
     return jars
 
+def _as_list(value):
+    """Converts a depset or list to a list. Handles Bazel 9 Starlarkification
+    where some JavaInfo fields return list instead of depset."""
+    if type(value) == "depset":
+        return value.to_list()
+    return list(value)
+
 def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_groups):
     """Updates Java-specific output groups, returns false if not a Java target."""
 
@@ -431,17 +441,17 @@ def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_gr
 
     compile_jars = []
     if hasattr(java_info, "compile_jars"):
-        compile_jars = [artifact_location(f) for f in java_info.compile_jars.to_list()]
+        compile_jars = [artifact_location(f) for f in _as_list(java_info.compile_jars)]
 
     runtime_jars = []
     if hasattr(java_info, "runtime_output_jars"):
-        runtime_jars = [artifact_location(f) for f in java_info.runtime_output_jars.to_list()]
+        runtime_jars = [artifact_location(f) for f in _as_list(java_info.runtime_output_jars)]
     elif hasattr(java_info, "transitive_runtime_jars"):
-        runtime_jars = [artifact_location(f) for f in java_info.transitive_runtime_jars.to_list()]
+        runtime_jars = [artifact_location(f) for f in _as_list(java_info.transitive_runtime_jars)]
 
     sources = []
     if hasattr(java_info, "source_jars"):
-        sources = [artifact_location(f) for f in java_info.source_jars.to_list()]
+        sources = [artifact_location(f) for f in _as_list(java_info.source_jars)]
 
     annotation_processors = []
     if hasattr(java_info, "annotation_processing") and java_info.annotation_processing != None:
@@ -462,12 +472,12 @@ def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_gr
 
     ide_info["java_ide_info"] = java_ide_info
 
-    resolve_files = java_info.compile_jars if hasattr(java_info, "compile_jars") else depset([])
-    compile_files = java_info.transitive_deps if hasattr(java_info, "transitive_deps") else depset([])
+    resolve_files_raw = java_info.compile_jars if hasattr(java_info, "compile_jars") else []
+    compile_files_raw = java_info.transitive_deps if hasattr(java_info, "transitive_deps") else []
 
     update_set_in_dict(output_groups, "intellij-info-java", depset([ide_info_file]))
-    update_set_in_dict(output_groups, "intellij-compile-java", depset(compile_files.to_list()))
-    update_set_in_dict(output_groups, "intellij-resolve-java", depset(resolve_files.to_list()))
+    update_set_in_dict(output_groups, "intellij-compile-java", depset(_as_list(compile_files_raw)))
+    update_set_in_dict(output_groups, "intellij-resolve-java", depset(_as_list(resolve_files_raw)))
     return True
 
 def collect_c_toolchain_info(target, ctx, semantics, ide_info, ide_info_file, output_groups):
