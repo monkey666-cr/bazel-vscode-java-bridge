@@ -104,6 +104,15 @@ public final class BazelBridge {
         return nativeGetSyncState(h);
     }
 
+    public boolean isInitialized() {
+        rwLock.readLock().lock();
+        try {
+            return handle != -1;
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
     public void cleanCache() {
         long h = snapshotHandle();
         nativeCleanCache(h);

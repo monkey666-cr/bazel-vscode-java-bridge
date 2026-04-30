@@ -21,6 +21,17 @@ public class BazelClasspathManager {
     public static void setClasspathContainer(IProject project, String targetLabel) {
         try {
             BazelBridge bridge = BazelBridge.getInstance();
+            if (!bridge.isInitialized()) {
+                LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                    "Bridge not initialized, using empty container for " + targetLabel));
+                JavaCore.setClasspathContainer(
+                    BazelClasspathContainer.CONTAINER_PATH,
+                    new org.eclipse.jdt.core.IJavaProject[]{JavaCore.create(project)},
+                    new IClasspathContainer[]{BazelClasspathContainer.EMPTY},
+                    null
+                );
+                return;
+            }
             String[] rawEntries = bridge.computeClasspath(targetLabel);
             BazelClasspathContainer container = new BazelClasspathContainer(rawEntries);
             JavaCore.setClasspathContainer(
@@ -45,10 +56,6 @@ public class BazelClasspathManager {
                 org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
             IProject[] projects = workspace.getRoot().getProjects();
 
-            BazelBridge bridge = BazelBridge.getInstance();
-            String[] targets = bridge.discoverTargets();
-            if (targets == null) return;
-
             for (IProject project : projects) {
                 if (!project.isOpen()) continue;
                 try {
@@ -58,7 +65,8 @@ public class BazelClasspathManager {
                         "Nature check failed for project " + project.getName(), e));
                     continue;
                 }
-                for (String targetLabel : targets) {
+                List<String> targetLabels = TargetProjectMapping.readTargets(project);
+                for (String targetLabel : targetLabels) {
                     setClasspathContainer(project, targetLabel);
                 }
             }
@@ -107,17 +115,30 @@ public class BazelClasspathManager {
 
         BazelBridge bridge = BazelBridge.getInstance();
         String[] pendingLabels = bridge.getPendingChanges();
-        for (String label : pendingLabels) {
-            if (!labels.contains(label)) {
-                labels.add(label);
+        String projectName = project.getName();
+
+        for (String pending : pendingLabels) {
+            String pendingPackage = pending.startsWith("//") ? pending.substring(2) : pending;
+            if (projectName.equals(pendingPackage)) {
+                List<String> stored = TargetProjectMapping.readTargets(project);
+                for (String label : stored) {
+                    if (!labels.contains(label)) {
+                        labels.add(label);
+                    }
+                }
             }
         }
 
         if (labels.isEmpty()) {
             for (String filePath : changedFiles) {
-                String projectName = project.getName();
                 if (filePath.contains(projectName)) {
-                    labels.add("//" + projectName + ":*");
+                    List<String> stored = TargetProjectMapping.readTargets(project);
+                    for (String label : stored) {
+                        if (!labels.contains(label)) {
+                            labels.add(label);
+                        }
+                    }
+                    break;
                 }
             }
         }

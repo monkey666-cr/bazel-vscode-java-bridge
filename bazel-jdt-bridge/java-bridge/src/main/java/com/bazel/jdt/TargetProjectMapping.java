@@ -1,0 +1,105 @@
+package com.bazel.jdt;
+
+import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.ProjectScope;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.ILog;
+import org.eclipse.core.runtime.Platform;
+import org.eclipse.core.runtime.QualifiedName;
+import org.osgi.service.prefs.BackingStoreException;
+import org.osgi.service.prefs.Preferences;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Centralized utility for persisting the mapping between Eclipse projects
+ * and their concrete Bazel target labels.
+ * <p>
+ * Uses Eclipse project persistent properties ({@link IProject#setPersistentProperty})
+ * so the mapping survives JDT.LS restarts and workspace reloads.
+ */
+public final class TargetProjectMapping {
+
+    private static final ILog LOG = Platform.getLog(TargetProjectMapping.class);
+
+    static final String QUALIFIER = "com.bazel.jdt";
+    static final String KEY = "targetLabels";
+
+    private TargetProjectMapping() {}
+
+    private static QualifiedName propertyName() {
+        return new QualifiedName(QUALIFIER, KEY);
+    }
+
+    /**
+     * Store target labels for a project, replacing any existing mapping.
+     *
+     * @param project      the Eclipse project
+     * @param targetLabels list of concrete Bazel target labels (e.g. "//app:lib")
+     */
+    public static void storeTargets(IProject project, List<String> targetLabels) {
+        try {
+            String value = String.join(",", targetLabels);
+            project.setPersistentProperty(propertyName(), value);
+            LOG.info("Stored target labels for project '" + project.getName() + "': " + value);
+        } catch (CoreException e) {
+            LOG.error("Failed to store target labels for project '" + project.getName() + "'", e);
+        }
+    }
+
+    /**
+     * Read the persisted target labels for a project.
+     *
+     * @param project the Eclipse project
+     * @return list of concrete Bazel target labels, or empty list if none persisted
+     */
+    public static List<String> readTargets(IProject project) {
+        try {
+            String value = project.getPersistentProperty(propertyName());
+            if (value == null || value.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<String> labels = new ArrayList<>();
+            for (String label : value.split(",")) {
+                String trimmed = label.trim();
+                if (!trimmed.isEmpty()) {
+                    labels.add(trimmed);
+                }
+            }
+            return labels;
+        } catch (CoreException e) {
+            LOG.error("Failed to read target labels for project '" + project.getName() + "'", e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Append target labels to a project's existing mapping, deduplicating.
+     *
+     * @param project   the Eclipse project
+     * @param newLabels labels to add
+     */
+    public static void appendTargets(IProject project, List<String> newLabels) {
+        List<String> existing = readTargets(project);
+        Set<String> merged = new LinkedHashSet<>(existing);
+        merged.addAll(newLabels);
+        storeTargets(project, new ArrayList<>(merged));
+    }
+
+    /**
+     * Remove the persisted target labels from a project.
+     *
+     * @param project the Eclipse project
+     */
+    public static void clearTargets(IProject project) {
+        try {
+            project.setPersistentProperty(propertyName(), null);
+        } catch (CoreException e) {
+            LOG.error("Failed to clear target labels for project '" + project.getName() + "'", e);
+        }
+    }
+}

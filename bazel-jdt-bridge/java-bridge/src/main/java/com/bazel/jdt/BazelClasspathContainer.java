@@ -12,6 +12,9 @@ import org.eclipse.jdt.core.JavaCore;
 public class BazelClasspathContainer implements IClasspathContainer {
     public static final IPath CONTAINER_PATH = Path.fromPortableString("com.bazel.jdt.BAZEL_CONTAINER");
     private static final String DESCRIPTION = "Bazel Dependencies";
+
+    public static final BazelClasspathContainer EMPTY = new BazelClasspathContainer((String[]) null);
+
     private final IClasspathEntry[] entries;
 
     public BazelClasspathContainer(String[] rawEntries) {

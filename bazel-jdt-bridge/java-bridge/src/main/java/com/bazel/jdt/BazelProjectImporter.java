@@ -2,6 +2,7 @@ package com.bazel.jdt;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.eclipse.core.resources.IProject;
@@ -91,12 +92,15 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                 newNatureIds[idx] = BazelNature.NATURE_ID;
                 desc.setNatureIds(newNatureIds);
                 project.setDescription(desc, monitor);
+                TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
                 configureClasspath(project, packageName, workspacePath, targetLabel, monitor);
             } catch (Exception e) {
                 LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
                     "Failed to import target: " + targetLabel, e));
             }
         }
+
+        BazelClasspathManager.refreshClasspath();
     }
 
     private void configureClasspath(IProject project, String packageName,
