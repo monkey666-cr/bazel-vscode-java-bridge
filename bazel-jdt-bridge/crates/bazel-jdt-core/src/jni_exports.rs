@@ -303,6 +303,50 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
         Err(e) => log::warn!("Failed to populate graph from BUILD files: {}", e),
     }
 
+    // Batch aspect build: populate JAR data for ALL targets in a single Bazel invocation.
+    // This ensures subsequent nativeComputeClasspath() calls hit the fast path (graph data).
+    // If this fails, individual targets will fall through to per-target aspect builds.
+    {
+        let aspect_targets = targets.clone();
+        let mut batch_rx = state.shutdown_signal();
+        let batch_result = state.runtime.block_on(async {
+            tokio::select! {
+                result = tokio::time::timeout(
+                    state.aspect_timeout,
+                    state.invoker.resolve_full_classpath(&aspect_targets),
+                ) => {
+                    match result {
+                        Ok(Ok(results)) => Ok(results),
+                        Ok(Err(e)) => {
+                            log::warn!("Batch aspect build failed: {}. Per-target resolution will be used.", e);
+                            Err(())
+                        }
+                        Err(_) => {
+                            log::warn!(
+                                "Batch aspect build timed out after {}s. Per-target resolution will be used.",
+                                state.aspect_timeout.as_secs()
+                            );
+                            Err(())
+                        }
+                    }
+                }
+                _ = batch_rx.changed() => {
+                    log::info!("Batch aspect build cancelled: shutdown requested");
+                    Err(())
+                }
+            }
+        });
+        if let Ok(aspect_results) = batch_result {
+            let mut graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
+            graph.populate_from_aspects(&aspect_results);
+            log::info!(
+                "Populated graph with batch aspect data: {} targets, {} with JARs",
+                aspect_results.len(),
+                aspect_results.iter().filter(|r| r.java_info.is_some()).count()
+            );
+        }
+    }
+
     state.set_sync_state(SyncState::Idle);
     match create_string_array(&mut env, &targets) {
         Ok(arr) => arr,
