@@ -187,7 +187,7 @@ npm run build
 ### 测试
 
 ```bash
-# Rust 单元测试 (15 个内联测试)
+# Rust 单元测试 + 集成测试 (38 个)
 cd bazel-jdt-bridge
 cargo test --workspace
 
@@ -200,7 +200,46 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Rust 测试采用内联 `#[cfg(test)] mod tests` 方式，不使用独立的测试文件或 dev-dependencies。
+### E2E 测试
+
+E2E 测试在真实 VSCode Extension Development Host (EDH) 中运行，验证从扩展激活到代码补全的完整流程。
+
+**前置条件：** Rust 原生库 + Java OSGi Bundle + TypeScript 必须已构建完成。
+
+```bash
+# 1. 先完成完整构建
+cd bazel-jdt-bridge
+cargo build -p bazel-jdt-core --release
+cd java-bridge && mvn clean package -DskipTests
+cd ../vscode-extension && npm install && npm run build
+
+# 2. 运行 E2E 测试 (默认使用 simple-java-project)
+cd bazel-jdt-bridge/vscode-extension
+npm run e2e
+
+# 3. 运行全量 E2E 测试 (所有 3 个 workspace)
+npm run e2e:full
+
+# 4. 测试指定 workspace
+TEST_WORKSPACE=maven-deps-project npm run e2e
+TEST_WORKSPACE=multi-module-project npm run e2e
+```
+
+**测试矩阵：**
+
+| Workspace | 验证内容 |
+|-----------|---------|
+| `simple-java-project` | 扩展激活、基本补全、Greeter 类解析 |
+| `maven-deps-project` | 外部依赖补全 (Guava、JUnit) |
+| `multi-module-project` | exports 传递依赖、resources |
+
+**分层测试策略：**
+
+| 改动类型 | 运行命令 | 预计时间 |
+|---------|---------|---------|
+| Rust 改动 | `cargo test --workspace` | ~5s |
+| Java 改动 | `mvn test` | ~10s |
+| TS 改动 | `npm run e2e` | ~2min |
 
 ### 跨平台发布构建
 
