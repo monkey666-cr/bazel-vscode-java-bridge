@@ -55,11 +55,7 @@ public class BazelClasspathContainer implements IClasspathContainer {
     }
 
     private static String extractPackageName(String targetLabel) {
-        int colonIndex = targetLabel.lastIndexOf(':');
-        if (colonIndex > 2) {
-            return targetLabel.substring(2, colonIndex);
-        }
-        return targetLabel.substring(2);
+        return LabelUtils.extractPackageName(targetLabel);
     }
 
     @Override

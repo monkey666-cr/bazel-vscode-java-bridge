@@ -104,9 +104,18 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
         entries.add(JavaCore.newContainerEntry(BazelClasspathContainer.CONTAINER_PATH));
 
-        IClasspathEntry jreEntry = JavaRuntime.getDefaultJREContainerEntry();
-        if (jreEntry != null) {
-            entries.add(jreEntry);
+        try {
+            IClasspathEntry jreEntry = JavaRuntime.getDefaultJREContainerEntry();
+            if (jreEntry != null) {
+                entries.add(jreEntry);
+            }
+        } catch (NoClassDefFoundError e) {
+            // org.eclipse.jdt.launching may not be available in all JDT.LS runtimes.
+            // The JRE container is optional — source entries + Bazel deps are sufficient
+            // for basic operation. Log and continue without it.
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                "JRE container entry not available (org.eclipse.jdt.launching not resolved). "
+                + "Classpath will omit system library entries.", e));
         }
 
         javaProject.setRawClasspath(entries.toArray(new IClasspathEntry[0]), monitor);
@@ -121,10 +130,6 @@ public class BazelProjectImporter extends AbstractProjectImporter {
     }
 
     private String extractPackageName(String targetLabel) {
-        int colonIndex = targetLabel.lastIndexOf(':');
-        if (colonIndex > 2) {
-            return targetLabel.substring(2, colonIndex);
-        }
-        return targetLabel.substring(2);
+        return LabelUtils.extractPackageName(targetLabel);
     }
 }

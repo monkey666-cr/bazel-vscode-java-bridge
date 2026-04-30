@@ -49,34 +49,10 @@ public final class NativeLoader {
     }
 
     static String detectPlatform() {
-        String os = System.getProperty("os.name").toLowerCase();
-        String arch = System.getProperty("os.arch").toLowerCase();
-        return detectOs(os) + "-" + detectArch(arch);
-    }
-
-    private static String detectOs(String os) {
-        if (os.contains("linux")) return "linux";
-        if (os.contains("mac") || os.contains("darwin")) return "darwin";
-        if (os.contains("win")) return "windows";
-        throw new UnsupportedOperationException("Unsupported OS: " + os);
-    }
-
-    private static String detectArch(String arch) {
-        // x86_64 is reported as x86_64 (Linux/macOS), amd64 (Windows), or x64 (some JVMs)
-        if (arch.contains("x86_64") || arch.contains("amd64") || arch.contains("x64")) {
-            return "x86_64";
-        }
-        // aarch64 is reported as aarch64 (Linux), arm64 (macOS), or arm (older systems)
-        if (arch.contains("aarch64") || arch.contains("arm64") || arch.contains("arm")) {
-            return "aarch64";
-        }
-        throw new UnsupportedOperationException("Unsupported architecture: " + arch);
+        return PlatformDetector.detectPlatform();
     }
 
     static String getLibraryFileName(String platform) {
-        if (platform.startsWith("linux")) return "lib" + LIB_NAME + ".so";
-        if (platform.startsWith("darwin")) return "lib" + LIB_NAME + ".dylib";
-        if (platform.startsWith("windows")) return LIB_NAME + ".dll";
-        throw new UnsupportedOperationException("Unknown platform: " + platform);
+        return PlatformDetector.getLibraryFileName(platform);
     }
 }
