@@ -122,10 +122,10 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
         addJreContainerEntry(entries);
 
+        BazelClasspathManager.setClasspathContainer(project, targetLabel);
+
         javaProject.setRawClasspath(entries.toArray(new IClasspathEntry[0]), monitor);
         javaProject.setOutputLocation(new Path("/" + project.getName() + "/bin"), monitor);
-
-        BazelClasspathManager.setClasspathContainer(project, targetLabel);
     }
 
     private void addJreContainerEntry(List<IClasspathEntry> entries) {
