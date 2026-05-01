@@ -67,6 +67,7 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         if (targets == null || targets.length == 0) return;
 
         IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
+        boolean firstProject = true;
 
         for (String targetLabel : targets) {
             try {
@@ -75,7 +76,13 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
                 boolean projectExisted = project.exists() && project.isOpen();
                 if (!project.exists()) {
-                    project.create(monitor);
+                    File packageDir = new File(workspacePath, packageName);
+                    org.eclipse.core.resources.IProjectDescription projDesc =
+                        project.getWorkspace().newProjectDescription(packageName);
+                    projDesc.setLocation(new Path(packageDir.getAbsolutePath()));
+                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                        "Creating project '" + packageName + "' at " + packageDir.getAbsolutePath()));
+                    project.create(projDesc, monitor);
                 }
                 if (!project.isOpen()) {
                     project.open(monitor);
@@ -111,6 +118,11 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                 }
 
                 TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
+
+                if (firstProject) {
+                    TargetProjectMapping.storeWorkspaceConfig(project, workspacePath, bazelPath, cacheDir);
+                    firstProject = false;
+                }
 
                 if (!projectExisted) {
                     configureClasspath(project, packageName, workspacePath, targetLabel, monitor);
@@ -174,6 +186,11 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         // No-op: BazelBridge.initialize() in importToWorkspace() handles native handle
         // lifecycle. Calling shutdown() here would permanently kill the executor, making
         // subsequent discoverTargets() calls fail with RejectedExecutionException.
+    }
+
+    @Override
+    public boolean isResolved(java.io.File rootFolder) {
+        return true;
     }
 
     private String extractPackageName(String targetLabel) {
