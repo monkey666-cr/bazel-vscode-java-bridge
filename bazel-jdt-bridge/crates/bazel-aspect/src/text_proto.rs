@@ -616,11 +616,9 @@ impl<'a> TextProtoParser<'a> {
         match value {
             Some(ProtoValue::String(s)) => vec![s],
             Some(ProtoValue::Strings(s)) => s,
-            Some(ProtoValue::Message(msg)) => {
-                Self::extract_label_from_dep_message(&msg)
-                    .into_iter()
-                    .collect()
-            }
+            Some(ProtoValue::Message(msg)) => Self::extract_label_from_dep_message(&msg)
+                .into_iter()
+                .collect(),
             Some(ProtoValue::Messages(msgs)) => msgs
                 .iter()
                 .filter_map(Self::extract_label_from_dep_message)
@@ -870,7 +868,10 @@ mod tests {
         "#;
 
         let result = parse_text_proto(input);
-        assert_eq!(result.value.deps, vec!["//greeter:greeter", "//common:util"]);
+        assert_eq!(
+            result.value.deps,
+            vec!["//greeter:greeter", "//common:util"]
+        );
     }
 
     #[test]

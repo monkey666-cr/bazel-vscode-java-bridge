@@ -325,10 +325,8 @@ pub fn scan_workspace_changes(
     let mut new = Vec::new();
     let mut affected = Vec::new();
 
-    let cached_paths: std::collections::HashSet<String> = cache
-        .list_build_hash_keys()?
-        .into_iter()
-        .collect();
+    let cached_paths: std::collections::HashSet<String> =
+        cache.list_build_hash_keys()?.into_iter().collect();
 
     let current_paths: std::collections::HashSet<String> = current_build_files
         .iter()
@@ -341,7 +339,10 @@ pub fn scan_workspace_changes(
         .collect();
 
     for deleted_path in &deleted {
-        affected.push(compute_build_file_package_label(deleted_path, workspace_root));
+        affected.push(compute_build_file_package_label(
+            deleted_path,
+            workspace_root,
+        ));
         let _ = cache.put_build_hash(&deleted_path.to_string_lossy(), "");
     }
 

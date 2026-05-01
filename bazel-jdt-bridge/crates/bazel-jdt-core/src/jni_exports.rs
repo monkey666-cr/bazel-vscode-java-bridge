@@ -342,7 +342,10 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
             log::info!(
                 "Populated graph with batch aspect data: {} targets, {} with JARs",
                 aspect_results.len(),
-                aspect_results.iter().filter(|r| r.java_info.is_some()).count()
+                aspect_results
+                    .iter()
+                    .filter(|r| r.java_info.is_some())
+                    .count()
             );
         }
     }
@@ -387,7 +390,11 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
                 };
             }
             Err(e) => {
-                log::warn!("Failed to deserialize cached classpath for {}: {}", label, e);
+                log::warn!(
+                    "Failed to deserialize cached classpath for {}: {}",
+                    label,
+                    e
+                );
             }
         }
     }

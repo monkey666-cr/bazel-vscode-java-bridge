@@ -98,8 +98,26 @@ impl ComputedClasspath {
 
         for dep_label in &deps {
             let dep_is_testonly = is_test_context && graph.is_testonly(dep_label);
-            let has_jars = if let Some(jars) = graph.get_target_jars(dep_label) {
-                let mut added = false;
+
+            if dep_label.starts_with("@@") {
+                continue;
+            }
+
+            let is_workspace_internal = !dep_label.starts_with('@');
+
+            if is_workspace_internal {
+                entries.push(ClasspathEntry {
+                    entry_type: ClasspathEntryType::Project,
+                    path: dep_label.clone(),
+                    source_attachment_path: None,
+                    is_test: dep_is_testonly,
+                    is_exported: false,
+                    access_rules: Vec::new(),
+                    visibility: Visibility::default(),
+                });
+            }
+
+            if let Some(jars) = graph.get_target_jars(dep_label) {
                 for jar in jars {
                     if seen_jars.insert(jar.clone()) {
                         entries.push(ClasspathEntry {
@@ -111,27 +129,8 @@ impl ComputedClasspath {
                             access_rules: Vec::new(),
                             visibility: Visibility::default(),
                         });
-                        added = true;
                     }
                 }
-                added
-            } else {
-                false
-            };
-
-            if !has_jars {
-                if dep_label.starts_with("@@") {
-                    continue;
-                }
-                entries.push(ClasspathEntry {
-                    entry_type: ClasspathEntryType::Project,
-                    path: dep_label.clone(),
-                    source_attachment_path: None,
-                    is_test: dep_is_testonly,
-                    is_exported: false,
-                    access_rules: Vec::new(),
-                    visibility: Visibility::default(),
-                });
             }
         }
 
@@ -288,20 +287,31 @@ mod tests {
     fn test_toolchain_targets_filtered_from_proj_entries() {
         let mut graph = DependencyGraph::new();
         let results = vec![
-            make_target("//app:app", vec!["@rules_java//java:toolchain", "@@rules_cc++ext//:compiler"], vec!["/app.jar"]),
+            make_target(
+                "//app:app",
+                vec!["@rules_java//java:toolchain", "@@rules_cc++ext//:compiler"],
+                vec!["/app.jar"],
+            ),
             make_target("@rules_java//java:toolchain", vec![], vec![]),
             make_target("@@rules_cc++ext//:compiler", vec![], vec![]),
         ];
 
         graph.populate_from_aspects(&results);
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
-        let proj_entries: Vec<&ClasspathEntry> = cp.entries.iter()
+        let proj_entries: Vec<&ClasspathEntry> = cp
+            .entries
+            .iter()
             .filter(|e| e.entry_type == ClasspathEntryType::Project)
             .collect();
 
         for entry in &proj_entries {
-            assert!(!entry.path.starts_with("@@"), "Expected no @@ entries, got: {}", entry.path);
+            assert!(
+                !entry.path.starts_with("@@"),
+                "Expected no @@ entries, got: {}",
+                entry.path
+            );
         }
     }
 
@@ -314,30 +324,44 @@ mod tests {
         ];
 
         graph.populate_from_aspects(&results);
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
-        let proj_paths: Vec<&str> = cp.entries.iter()
+        let proj_paths: Vec<&str> = cp
+            .entries
+            .iter()
             .filter(|e| e.entry_type == ClasspathEntryType::Project)
             .map(|e| e.path.as_str())
             .collect();
 
-        assert!(proj_paths.contains(&"//lib:utils"), "Expected //lib:utils PROJ entry, got: {:?}", proj_paths);
+        assert!(
+            proj_paths.contains(&"//lib:utils"),
+            "Expected //lib:utils PROJ entry, got: {:?}",
+            proj_paths
+        );
     }
 
     #[test]
     fn test_mixed_deps_filters_only_at_at() {
         let mut graph = DependencyGraph::new();
         let results = vec![
-            make_target("//app:app", vec!["//lib:utils", "@@toolchain//:tc", "//lib:api"], vec!["/app.jar"]),
+            make_target(
+                "//app:app",
+                vec!["//lib:utils", "@@toolchain//:tc", "//lib:api"],
+                vec!["/app.jar"],
+            ),
             make_target("//lib:utils", vec![], vec![]),
             make_target("@@toolchain//:tc", vec![], vec![]),
             make_target("//lib:api", vec![], vec![]),
         ];
 
         graph.populate_from_aspects(&results);
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
-        let proj_paths: Vec<&str> = cp.entries.iter()
+        let proj_paths: Vec<&str> = cp
+            .entries
+            .iter()
             .filter(|e| e.entry_type == ClasspathEntryType::Project)
             .map(|e| e.path.as_str())
             .collect();
@@ -359,10 +383,18 @@ mod tests {
         ];
         graph.populate_from_aspects(&results);
 
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
 
-        let greeter_entry = cp.entries.iter().find(|e| e.path == "/greeter.jar").unwrap();
-        assert!(!greeter_entry.is_test, "Regular library dep should NOT have is_test=true");
+        let greeter_entry = cp
+            .entries
+            .iter()
+            .find(|e| e.path == "/greeter.jar")
+            .unwrap();
+        assert!(
+            !greeter_entry.is_test,
+            "Regular library dep should NOT have is_test=true"
+        );
     }
 
     #[test]
@@ -375,10 +407,18 @@ mod tests {
         let results = vec![test_target, test_helpers];
         graph.populate_from_aspects(&results);
 
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
 
-        let helpers_entry = cp.entries.iter().find(|e| e.path == "/helpers.jar").unwrap();
-        assert!(helpers_entry.is_test, "Testonly dep should have is_test=true");
+        let helpers_entry = cp
+            .entries
+            .iter()
+            .find(|e| e.path == "/helpers.jar")
+            .unwrap();
+        assert!(
+            helpers_entry.is_test,
+            "Testonly dep should have is_test=true"
+        );
     }
 
     #[test]
@@ -392,10 +432,185 @@ mod tests {
         ];
         graph.populate_from_aspects(&results);
 
-        let cp = ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
         for entry in &cp.entries {
-            assert!(!entry.is_test, "Library target deps should all have is_test=false, got is_test=true for {}", entry.path);
+            assert!(
+                !entry.is_test,
+                "Library target deps should all have is_test=false, got is_test=true for {}",
+                entry.path
+            );
         }
+    }
+
+    #[test]
+    fn test_internal_dep_with_jars_produces_proj_and_lib() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["//lib:utils"], vec!["/app.jar"]),
+            make_target("//lib:utils", vec![], vec!["/utils.jar"]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let proj_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Project && e.path == "//lib:utils");
+        let lib_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Library && e.path == "/utils.jar");
+
+        assert!(proj_idx.is_some(), "Expected PROJ entry for //lib:utils");
+        assert!(lib_idx.is_some(), "Expected LIB entry for /utils.jar");
+        assert!(
+            proj_idx.unwrap() < lib_idx.unwrap(),
+            "PROJ entry should appear before LIB entry for same dependency"
+        );
+    }
+
+    #[test]
+    fn test_internal_dep_without_jars_produces_only_proj() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["//lib:api"], vec!["/app.jar"]),
+            make_target("//lib:api", vec![], vec![]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let proj_count = cp
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == ClasspathEntryType::Project && e.path == "//lib:api")
+            .count();
+        let lib_count = cp
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == ClasspathEntryType::Library && e.path.contains("api"))
+            .count();
+
+        assert_eq!(
+            proj_count, 1,
+            "Expected exactly one PROJ entry for //lib:api"
+        );
+        assert_eq!(
+            lib_count, 0,
+            "Expected no LIB entries for //lib:api (no JAR data)"
+        );
+    }
+
+    #[test]
+    fn test_external_dep_produces_only_lib() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["@maven//:guava"], vec!["/app.jar"]),
+            make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let proj_count = cp
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == ClasspathEntryType::Project)
+            .count();
+        let lib_count = cp
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == ClasspathEntryType::Library && e.path == "/guava.jar")
+            .count();
+
+        assert_eq!(
+            proj_count, 0,
+            "Expected no PROJ entries for external @maven dependency"
+        );
+        assert_eq!(lib_count, 1, "Expected exactly one LIB entry for guava.jar");
+    }
+
+    #[test]
+    fn test_at_at_prefixed_dep_produces_no_entries() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["@@toolchain//:jdk"], vec!["/app.jar"]),
+            make_target("@@toolchain//:jdk", vec![], vec![]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let at_at_entries: Vec<&ClasspathEntry> = cp
+            .entries
+            .iter()
+            .filter(|e| e.path.contains("toolchain"))
+            .collect();
+
+        assert!(
+            at_at_entries.is_empty(),
+            "Expected no entries for @@-prefixed dependency, got: {:?}",
+            at_at_entries
+        );
+    }
+
+    #[test]
+    fn test_mixed_deps_correct_ordering() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target(
+                "//app:app",
+                vec!["//lib:utils", "@maven//:guava", "//lib:api"],
+                vec!["/app.jar"],
+            ),
+            make_target("//lib:utils", vec![], vec!["/utils.jar"]),
+            make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
+            make_target("//lib:api", vec![], vec![]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let utils_proj_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Project && e.path == "//lib:utils");
+        let utils_lib_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Library && e.path == "/utils.jar");
+        let guava_lib_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Library && e.path == "/guava.jar");
+        let api_proj_idx = cp
+            .entries
+            .iter()
+            .position(|e| e.entry_type == ClasspathEntryType::Project && e.path == "//lib:api");
+        let guava_proj_idx = cp.entries.iter().position(|e| {
+            e.entry_type == ClasspathEntryType::Project && e.path == "@maven//:guava"
+        });
+
+        assert!(utils_proj_idx.is_some(), "Expected PROJ for //lib:utils");
+        assert!(utils_lib_idx.is_some(), "Expected LIB for /utils.jar");
+        assert!(guava_lib_idx.is_some(), "Expected LIB for /guava.jar");
+        assert!(api_proj_idx.is_some(), "Expected PROJ for //lib:api");
+        assert!(
+            guava_proj_idx.is_none(),
+            "Expected no PROJ for external @maven//:guava"
+        );
+
+        assert!(
+            utils_proj_idx.unwrap() < utils_lib_idx.unwrap(),
+            "PROJ for utils should precede its LIB"
+        );
     }
 }

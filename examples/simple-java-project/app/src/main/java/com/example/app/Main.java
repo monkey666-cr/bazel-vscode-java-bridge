@@ -8,5 +8,6 @@ public class Main {
         Greeter greeter = new Greeter(name);
         System.out.println(greeter.greet());
         System.out.println(greeter.formalGreet());
+        System.out.println(greeter.getName());
     }
 }

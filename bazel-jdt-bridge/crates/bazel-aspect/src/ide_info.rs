@@ -76,7 +76,11 @@ impl ArtifactLocation {
             return Some(abs.clone());
         }
         match (&self.root_path, &self.relative_path) {
-            (Some(root), Some(rel)) => Some(format!("{}/{}", root.trim_end_matches('/'), rel.trim_start_matches('/'))),
+            (Some(root), Some(rel)) => Some(format!(
+                "{}/{}",
+                root.trim_end_matches('/'),
+                rel.trim_start_matches('/')
+            )),
             (_, Some(rel)) => Some(rel.clone()),
             _ => None,
         }

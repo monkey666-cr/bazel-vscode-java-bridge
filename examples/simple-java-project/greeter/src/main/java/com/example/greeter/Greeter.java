@@ -15,4 +15,8 @@ public class Greeter {
     public String formalGreet() {
         return "Dear " + name + ", it is a pleasure to meet you.";
     }
+
+    public String getName() {
+        return name;
+    }
 }
