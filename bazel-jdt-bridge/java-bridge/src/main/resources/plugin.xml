@@ -15,7 +15,16 @@
     </extension>
 
     <extension point="org.eclipse.jdt.ls.core.delegateCommandHandler">
-        <delegateCommandHandler class="com.bazel.jdt.BazelCommandHandler"/>
+        <delegateCommandHandler
+            id="bazelDelegateCommandHandler"
+            name="Bazel JDT Bridge Command Handler"
+            class="com.bazel.jdt.BazelCommandHandler">
+            <command id="bazel-jdt.importProject"/>
+            <command id="bazel-jdt.syncProject"/>
+            <command id="bazel-jdt.cleanCache"/>
+            <command id="bazel-jdt.getSyncState"/>
+            <command id="bazel-jdt.shutdown"/>
+        </delegateCommandHandler>
     </extension>
 
     <extension point="org.eclipse.core.resources.natures"

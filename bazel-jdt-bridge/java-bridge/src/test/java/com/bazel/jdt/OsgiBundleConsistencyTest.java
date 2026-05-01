@@ -33,11 +33,13 @@ public class OsgiBundleConsistencyTest {
             "src", "main", "java", "com", "bazel", "jdt");
 
     private static Set<String> declaredBundles;
+    private static Set<String> declaredImportPackages;
     private static Set<String> importedEclipsePackages;
 
     @BeforeClass
     public static void parseBndAndSource() throws Exception {
         declaredBundles = parseRequireBundle(BND_FILE);
+        declaredImportPackages = parseImportPackage(BND_FILE);
         importedEclipsePackages = scanEclipseImports(SRC_DIR);
     }
 
@@ -89,6 +91,51 @@ public class OsgiBundleConsistencyTest {
             uncovered.isEmpty());
     }
 
+    @Test
+    public void importPackageIncludesJdtLsCoreInternal() {
+        assertTrue(
+            "Import-Package must include org.eclipse.jdt.ls.core.internal "
+            + "(BazelCommandHandler implements IDelegateCommandHandler). "
+            + "Declared: " + declaredImportPackages,
+            declaredImportPackages.contains("org.eclipse.jdt.ls.core.internal"));
+    }
+
+    @Test
+    public void importPackageIncludesJdtLsCoreInternalManagers() {
+        assertTrue(
+            "Import-Package must include org.eclipse.jdt.ls.core.internal.managers "
+            + "(BazelBuildSupport implements IBuildSupport). "
+            + "Declared: " + declaredImportPackages,
+            declaredImportPackages.contains("org.eclipse.jdt.ls.core.internal.managers"));
+    }
+
+    @Test
+    public void importPackageIncludesJdtCore() {
+        assertTrue(
+            "Import-Package must include org.eclipse.jdt.core "
+            + "(multiple classes use IClasspathContainer, JavaCore, etc.). "
+            + "Declared: " + declaredImportPackages,
+            declaredImportPackages.contains("org.eclipse.jdt.core"));
+    }
+
+    @Test
+    public void importPackageIncludesCoreResources() {
+        assertTrue(
+            "Import-Package must include org.eclipse.core.resources "
+            + "(BazelActivator, BazelProjectImporter use IProject, IWorkspaceRoot, etc.). "
+            + "Declared: " + declaredImportPackages,
+            declaredImportPackages.contains("org.eclipse.core.resources"));
+    }
+
+    @Test
+    public void importPackageIncludesJdtLaunching() {
+        assertTrue(
+            "Import-Package must include org.eclipse.jdt.launching "
+            + "(BazelProjectImporter uses JavaRuntime via reflection). "
+            + "Declared: " + declaredImportPackages,
+            declaredImportPackages.contains("org.eclipse.jdt.launching"));
+    }
+
     private static Set<String> parseRequireBundle(Path bndFile) throws Exception {
         Set<String> bundles = new HashSet<>();
         Pattern pattern = Pattern.compile("Require-Bundle:\\s*(.+)");
@@ -124,6 +171,35 @@ public class OsgiBundleConsistencyTest {
                     throw new RuntimeException(e);
                 }
             });
+        return packages;
+    }
+
+    private static Set<String> parseImportPackage(Path bndFile) throws Exception {
+        Set<String> packages = new HashSet<>();
+        StringBuilder header = new StringBuilder();
+        boolean inHeader = false;
+        try (BufferedReader reader = new BufferedReader(new FileReader(bndFile.toFile()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("Import-Package:")) {
+                    inHeader = true;
+                    header.append(line.substring("Import-Package:".length()));
+                } else if (inHeader) {
+                    if (line.startsWith(" ") || line.startsWith("\t")) {
+                        header.append(line.trim());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        String[] parts = header.toString().replace("\\", "").split(",");
+        for (String part : parts) {
+            String trimmed = part.trim().split(";")[0].trim();
+            if (!trimmed.isEmpty() && !trimmed.equals("*")) {
+                packages.add(trimmed);
+            }
+        }
         return packages;
     }
 
