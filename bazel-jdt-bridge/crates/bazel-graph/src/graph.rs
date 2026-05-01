@@ -7,6 +7,9 @@ pub struct DependencyGraph {
     label_to_index: HashMap<String, NodeIndex>,
     /// JARs associated with each target
     target_jars: HashMap<String, Vec<String>>,
+    /// Targets that have `testonly = True` in their Bazel rule definition.
+    /// These targets can only be depended on by test targets.
+    testonly_targets: HashSet<String>,
 }
 
 /// Error for graph operations
@@ -25,6 +28,7 @@ impl DependencyGraph {
             graph: DiGraph::new(),
             label_to_index: HashMap::new(),
             target_jars: HashMap::new(),
+            testonly_targets: HashSet::new(),
         }
     }
 
@@ -112,6 +116,11 @@ impl DependencyGraph {
         self.target_jars.get(label)
     }
 
+    /// Check if a target has `testonly = True`.
+    pub fn is_testonly(&self, label: &str) -> bool {
+        self.testonly_targets.contains(label)
+    }
+
     /// Get all target labels
     pub fn all_targets(&self) -> Vec<String> {
         self.label_to_index.keys().cloned().collect()
@@ -122,6 +131,7 @@ impl DependencyGraph {
         self.graph = DiGraph::new();
         self.label_to_index.clear();
         self.target_jars.clear();
+        self.testonly_targets.clear();
     }
 
     /// Populate graph from Bazel aspect output (primary data source).
@@ -130,6 +140,10 @@ impl DependencyGraph {
         for info in results {
             let label = &info.label;
             self.add_target(label);
+
+            if info.kind == "java_test" {
+                self.testonly_targets.insert(label.clone());
+            }
 
             if let Some(ref java_info) = info.java_info {
                 let jars: Vec<String> = java_info
@@ -170,6 +184,9 @@ impl DependencyGraph {
         for rule in &file.rules {
             let target_label = format!("{}:{}", package_label, rule.name);
             self.add_target(&target_label);
+            if rule.test_only {
+                self.testonly_targets.insert(target_label.clone());
+            }
             for dep in &rule.deps {
                 self.add_dep(&target_label, dep);
             }
@@ -423,5 +440,70 @@ mod tests {
         assert_eq!(graph.target_count(), 1);
         assert!(!graph.has_target("//old:target"));
         assert!(graph.has_target("//new:target"));
+    }
+
+    #[test]
+    fn test_testonly_from_aspect_java_test() {
+        let mut graph = DependencyGraph::new();
+        let mut test_target = make_target("//foo:my_test", vec!["//foo:lib"], vec![]);
+        test_target.kind = "java_test".to_string();
+        let results = vec![
+            test_target,
+            make_target("//foo:lib", vec![], vec!["/lib.jar"]),
+        ];
+        graph.populate_from_aspects(&results);
+        assert!(graph.is_testonly("//foo:my_test"));
+        assert!(!graph.is_testonly("//foo:lib"));
+    }
+
+    #[test]
+    fn test_testonly_from_parsed_build_file() {
+        let mut graph = DependencyGraph::new();
+        let workspace_root = PathBuf::from("/workspace");
+        let parsed = ParsedBuildFile {
+            path: PathBuf::from("/workspace/pkg/BUILD"),
+            content_hash: String::new(),
+            rules: vec![
+                JavaRule {
+                    rule_type: RuleType::JavaLibrary,
+                    name: "lib".to_string(),
+                    srcs: vec![],
+                    deps: vec![],
+                    runtime_deps: vec![],
+                    resources: vec![],
+                    plugins: vec![],
+                    exports: vec![],
+                    test_only: true,
+                    visibility: vec![],
+                },
+                JavaRule {
+                    rule_type: RuleType::JavaLibrary,
+                    name: "public_lib".to_string(),
+                    srcs: vec![],
+                    deps: vec![],
+                    runtime_deps: vec![],
+                    resources: vec![],
+                    plugins: vec![],
+                    exports: vec![],
+                    test_only: false,
+                    visibility: vec![],
+                },
+            ],
+            loads: vec![],
+        };
+        graph.populate_from_parsed(&parsed, &workspace_root);
+        assert!(graph.is_testonly("//pkg:lib"));
+        assert!(!graph.is_testonly("//pkg:public_lib"));
+    }
+
+    #[test]
+    fn test_clear_resets_testonly() {
+        let mut graph = DependencyGraph::new();
+        let mut test_target = make_target("//foo:test", vec![], vec![]);
+        test_target.kind = "java_test".to_string();
+        graph.populate_from_aspects(&[test_target]);
+        assert!(graph.is_testonly("//foo:test"));
+        graph.clear();
+        assert!(!graph.is_testonly("//foo:test"));
     }
 }

@@ -6,7 +6,6 @@ import java.util.List;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IAccessRule;
-import org.eclipse.jdt.core.IClasspathAttribute;
 import org.eclipse.jdt.core.IClasspathContainer;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
@@ -48,13 +47,9 @@ public class BazelClasspathContainer implements IClasspathContainer {
                 IPath jarPath = Path.fromPortableString(path);
                 IPath srcPath = sourcePath != null ? Path.fromPortableString(sourcePath) : null;
                 IAccessRule[] accessRules = parseAccessRules(accessRulesStr);
-                List<IClasspathAttribute> attributes = new ArrayList<>();
-                if (isTest) {
-                    attributes.add(JavaCore.newClasspathAttribute(IClasspathAttribute.TEST, "true"));
-                }
                 return JavaCore.newLibraryEntry(jarPath, srcPath, null,
                     accessRules,
-                    attributes.toArray(new IClasspathAttribute[0]),
+                    new org.eclipse.jdt.core.IClasspathAttribute[0],
                     isExported);
             case "PROJ":
                 if (path.startsWith("@@")) {

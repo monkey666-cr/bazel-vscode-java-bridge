@@ -89,7 +89,7 @@ impl ComputedClasspath {
     fn compute_for_library(
         graph: &DependencyGraph,
         target_label: &str,
-        is_test: bool,
+        is_test_context: bool,
     ) -> Result<Self, GraphError> {
         let deps = graph.transitive_deps(target_label)?;
 
@@ -97,6 +97,7 @@ impl ComputedClasspath {
         let mut seen_jars = std::collections::HashSet::new();
 
         for dep_label in &deps {
+            let dep_is_testonly = is_test_context && graph.is_testonly(dep_label);
             let has_jars = if let Some(jars) = graph.get_target_jars(dep_label) {
                 let mut added = false;
                 for jar in jars {
@@ -105,7 +106,7 @@ impl ComputedClasspath {
                             entry_type: ClasspathEntryType::Library,
                             path: jar.clone(),
                             source_attachment_path: None,
-                            is_test,
+                            is_test: dep_is_testonly,
                             is_exported: false,
                             access_rules: Vec::new(),
                             visibility: Visibility::default(),
@@ -126,7 +127,7 @@ impl ComputedClasspath {
                     entry_type: ClasspathEntryType::Project,
                     path: dep_label.clone(),
                     source_attachment_path: None,
-                    is_test,
+                    is_test: dep_is_testonly,
                     is_exported: false,
                     access_rules: Vec::new(),
                     visibility: Visibility::default(),
@@ -345,5 +346,56 @@ mod tests {
         assert!(proj_paths.contains(&"//lib:utils"));
         assert!(proj_paths.contains(&"//lib:api"));
         assert!(!proj_paths.iter().any(|p| p.starts_with("@@")));
+    }
+
+    #[test]
+    fn test_regular_lib_dep_of_test_target_is_not_test() {
+        let mut graph = DependencyGraph::new();
+        let mut test_target = make_target("//app:app_test", vec!["//lib:greeter_lib"], vec![]);
+        test_target.kind = "java_test".to_string();
+        let results = vec![
+            test_target,
+            make_target("//lib:greeter_lib", vec![], vec!["/greeter.jar"]),
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp = ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
+
+        let greeter_entry = cp.entries.iter().find(|e| e.path == "/greeter.jar").unwrap();
+        assert!(!greeter_entry.is_test, "Regular library dep should NOT have is_test=true");
+    }
+
+    #[test]
+    fn test_testonly_dep_of_test_target_is_test() {
+        let mut graph = DependencyGraph::new();
+        let mut test_target = make_target("//app:app_test", vec!["//lib:test_helpers"], vec![]);
+        test_target.kind = "java_test".to_string();
+        let mut test_helpers = make_target("//lib:test_helpers", vec![], vec!["/helpers.jar"]);
+        test_helpers.kind = "java_test".to_string();
+        let results = vec![test_target, test_helpers];
+        graph.populate_from_aspects(&results);
+
+        let cp = ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
+
+        let helpers_entry = cp.entries.iter().find(|e| e.path == "/helpers.jar").unwrap();
+        assert!(helpers_entry.is_test, "Testonly dep should have is_test=true");
+    }
+
+    #[test]
+    fn test_library_target_all_deps_not_test() {
+        let mut graph = DependencyGraph::new();
+        let mut test_helpers = make_target("//lib:test_helpers", vec![], vec!["/helpers.jar"]);
+        test_helpers.kind = "java_test".to_string();
+        let results = vec![
+            make_target("//app:app", vec!["//lib:test_helpers"], vec!["/app.jar"]),
+            test_helpers,
+        ];
+        graph.populate_from_aspects(&results);
+
+        let cp = ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        for entry in &cp.entries {
+            assert!(!entry.is_test, "Library target deps should all have is_test=false, got is_test=true for {}", entry.path);
+        }
     }
 }
