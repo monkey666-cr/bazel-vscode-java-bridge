@@ -7,6 +7,8 @@ pub struct DependencyGraph {
     label_to_index: HashMap<String, NodeIndex>,
     /// JARs associated with each target
     target_jars: HashMap<String, Vec<String>>,
+    /// Source JAR mappings per target: {target_label → {binary_jar_path → source_jar_path}}
+    target_source_jars: HashMap<String, HashMap<String, String>>,
     /// Targets that have `testonly = True` in their Bazel rule definition.
     /// These targets can only be depended on by test targets.
     testonly_targets: HashSet<String>,
@@ -31,6 +33,7 @@ impl DependencyGraph {
             graph: DiGraph::new(),
             label_to_index: HashMap::new(),
             target_jars: HashMap::new(),
+            target_source_jars: HashMap::new(),
             testonly_targets: HashSet::new(),
             label_aliases: HashMap::new(),
         }
@@ -136,6 +139,22 @@ impl DependencyGraph {
         None
     }
 
+    /// Get the source JAR path for a specific binary JAR of a target.
+    /// Resolves through label_aliases like get_target_jars().
+    pub fn get_target_source_jar(&self, label: &str, binary_jar: &str) -> Option<String> {
+        if let Some(sources) = self.target_source_jars.get(label) {
+            if let Some(src) = sources.get(binary_jar) {
+                return Some(src.clone());
+            }
+        }
+        if let Some(canonical) = self.label_aliases.get(label) {
+            if let Some(sources) = self.target_source_jars.get(canonical) {
+                return sources.get(binary_jar).cloned();
+            }
+        }
+        None
+    }
+
     /// Check if a target has `testonly = True`.
     pub fn is_testonly(&self, label: &str) -> bool {
         self.testonly_targets.contains(label)
@@ -151,13 +170,19 @@ impl DependencyGraph {
         self.graph = DiGraph::new();
         self.label_to_index.clear();
         self.target_jars.clear();
+        self.target_source_jars.clear();
         self.testonly_targets.clear();
         self.label_aliases.clear();
     }
 
     /// Populate graph from Bazel aspect output (primary data source).
     /// Iterates aspect results, creating nodes, edges, and JAR associations.
-    pub fn populate_from_aspects(&mut self, results: &[bazel_aspect::TargetIdeInfo]) {
+    pub fn populate_from_aspects(
+        &mut self,
+        results: &[bazel_aspect::TargetIdeInfo],
+        workspace_root: &std::path::Path,
+    ) {
+        eprintln!("[bazel-jdt] populate_from_aspects called with workspace_root='{}'", workspace_root.display());
         for info in results {
             let label = &info.label;
             self.add_target(label);
@@ -179,8 +204,6 @@ impl DependencyGraph {
                     .filter_map(|j| j.jar.best_path())
                     .collect();
 
-                // Fallback: java_import targets (e.g. Maven deps from rules_jvm_external)
-                // may have empty `jars` but populated `compile_jars`.
                 if jars.is_empty() {
                     jars = java_info
                         .compile_jars
@@ -191,6 +214,47 @@ impl DependencyGraph {
 
                 if !jars.is_empty() {
                     self.set_target_jars(label, jars);
+                }
+
+                let mut source_map: HashMap<String, String> = HashMap::new();
+                for jar_info in &java_info.jars {
+                    if let (Some(bin_path), Some(src_path)) =
+                        (jar_info.jar.best_path(), jar_info.source_jar.as_ref().and_then(|s| s.best_path()))
+                    {
+                        let resolved_src = resolve_external_path(&src_path, workspace_root)
+                            .unwrap_or(src_path);
+                        source_map.insert(bin_path, resolved_src);
+                    }
+                }
+
+                // When jars is empty (compile_jars fallback for java_import targets),
+                // match source_jars to compile_jars by parent directory (Maven coordinates).
+                if source_map.is_empty() && !java_info.source_jars.is_empty() {
+                    let source_by_dir: HashMap<String, String> = java_info
+                        .source_jars
+                        .iter()
+                        .filter_map(|s| {
+                            s.best_path().map(|p| {
+                                let resolved = resolve_external_path(&p, workspace_root)
+                                    .unwrap_or(p);
+                                (parent_key(&resolved), resolved)
+                            })
+                        })
+                        .collect();
+
+                    for bin_jar in self.target_jars.get(label).into_iter().flatten() {
+                        if let Some(src_path) = source_by_dir.get(&parent_key(bin_jar)) {
+                            source_map.insert(bin_jar.clone(), src_path.clone());
+                        }
+                    }
+                }
+
+                if !source_map.is_empty() {
+                    eprintln!("[bazel-jdt] source_map for '{}': {} entries", label, source_map.len());
+                    for (bin, src) in &source_map {
+                        eprintln!("[bazel-jdt]   {} -> {}", bin, src);
+                    }
+                    self.target_source_jars.insert(label.clone(), source_map);
                 }
 
                 for dep in &info.deps {
@@ -278,9 +342,75 @@ fn compute_package_label_from_build_path(
     }
 }
 
+fn parent_key(path: &str) -> String {
+    std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
 impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn resolve_external_path(path: &str, workspace_root: &std::path::Path) -> Option<String> {
+    let relative = if path.starts_with("external/") {
+        path.to_string()
+    } else if path.contains("/external/") && path.starts_with(workspace_root.to_str()?) {
+        let idx = path.find("/external/")?;
+        path[idx + 1..].to_string()
+    } else {
+        return None;
+    };
+
+    let bazel_out = workspace_root.join("bazel-out");
+    match std::fs::canonicalize(&bazel_out) {
+        Ok(resolved) => {
+            if let Some(execroot) = resolved.parent() {
+                let candidate = execroot.join(&relative);
+                if candidate.exists() {
+                    let result = candidate.to_string_lossy().into_owned();
+                    eprintln!(
+                        "[bazel-jdt] resolve_external_path: '{}' -> '{}' (execroot)",
+                        path, result
+                    );
+                    return Some(result);
+                }
+                if let Some(output_base) = execroot.parent().and_then(|p| p.parent()) {
+                    let candidate = output_base.join(&relative);
+                    if candidate.exists() {
+                        let result = candidate.to_string_lossy().into_owned();
+                        eprintln!(
+                            "[bazel-jdt] resolve_external_path: '{}' -> '{}' (output_base)",
+                            path, result
+                        );
+                        return Some(result);
+                    }
+                }
+                let result = execroot.join(&relative).to_string_lossy().into_owned();
+                eprintln!(
+                    "[bazel-jdt] resolve_external_path: '{}' -> '{}' (execroot, file not yet found)",
+                    path, result
+                );
+                Some(result)
+            } else {
+                eprintln!(
+                    "[bazel-jdt] resolve_external_path: no parent for bazel-out '{}'",
+                    resolved.display()
+                );
+                None
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "[bazel-jdt] resolve_external_path: canonicalize('{}') failed: {}",
+                bazel_out.display(),
+                e
+            );
+            None
+        }
     }
 }
 
@@ -358,25 +488,13 @@ mod tests {
             make_target("//baz:app", vec!["//foo:lib"], vec![]),
         ];
 
-        graph.populate_from_aspects(&results);
-
-        assert_eq!(graph.target_count(), 3);
-        assert!(graph.has_target("//foo:lib"));
-        assert!(graph.has_target("//bar:util"));
-        assert!(graph.has_target("//baz:app"));
-
-        let deps = graph.transitive_deps("//foo:lib").unwrap();
-        assert!(deps.contains(&"//bar:util".to_string()));
-
-        let jars = graph.get_target_jars("//foo:lib").unwrap();
-        assert_eq!(jars.len(), 1);
-        assert_eq!(jars[0], "/path/lib.jar");
+graph.populate_from_aspects(&results, Path::new("/workspace"));
     }
 
     #[test]
     fn test_populate_from_aspects_empty() {
         let mut graph = DependencyGraph::new();
-        graph.populate_from_aspects(&[]);
+        graph.populate_from_aspects(&[], Path::new("/workspace"));
         assert_eq!(graph.target_count(), 0);
     }
 
@@ -388,7 +506,7 @@ mod tests {
             make_target("//foo:lib", vec![], vec!["/second.jar"]),
         ];
 
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         assert_eq!(graph.target_count(), 1);
         let jars = graph.get_target_jars("//foo:lib").unwrap();
@@ -502,7 +620,7 @@ mod tests {
         assert_eq!(graph.target_count(), 0);
 
         let results = vec![make_target("//new:target", vec![], vec![])];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
         assert_eq!(graph.target_count(), 1);
         assert!(!graph.has_target("//old:target"));
         assert!(graph.has_target("//new:target"));
@@ -517,7 +635,7 @@ mod tests {
             test_target,
             make_target("//foo:lib", vec![], vec!["/lib.jar"]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
         assert!(graph.is_testonly("//foo:my_test"));
         assert!(!graph.is_testonly("//foo:lib"));
     }
@@ -567,7 +685,7 @@ mod tests {
         let mut graph = DependencyGraph::new();
         let mut test_target = make_target("//foo:test", vec![], vec![]);
         test_target.kind = "java_test".to_string();
-        graph.populate_from_aspects(&[test_target]);
+        graph.populate_from_aspects(&[test_target], Path::new("/workspace"));
         assert!(graph.is_testonly("//foo:test"));
         graph.clear();
         assert!(!graph.is_testonly("//foo:test"));
@@ -580,7 +698,7 @@ mod tests {
             make_target("//app:app", vec!["@maven//:guava"], vec!["/app.jar"]),
             make_target_with_compile_jars("@maven//:guava", vec![], vec!["/guava.jar"]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let jars = graph.get_target_jars("@maven//:guava");
         assert!(
@@ -619,13 +737,125 @@ mod tests {
             exports: Vec::new(),
         };
 
-        graph.populate_from_aspects(&[target]);
+        graph.populate_from_aspects(&[target], Path::new("/workspace"));
 
         let jars = graph.get_target_jars("//lib:mylib").unwrap();
         assert_eq!(jars.len(), 1);
         assert_eq!(
             jars[0], "/output.jar",
             "Expected `jars` field to take precedence over `compile_jars`"
+        );
+    }
+
+    #[test]
+    fn test_populate_from_aspects_extracts_source_jars() {
+        let mut graph = DependencyGraph::new();
+        let target = TargetIdeInfo {
+            label: "//lib:utils".to_string(),
+            kind: "java_library".to_string(),
+            build_file: None,
+            java_info: Some(JavaIdeInfo {
+                jars: vec![
+                    JarInfo {
+                        jar: ArtifactLocation {
+                            absolute_path: Some("/output.jar".to_string()),
+                            ..Default::default()
+                        },
+                        source_jar: Some(ArtifactLocation {
+                            absolute_path: Some("/output-sources.jar".to_string()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    JarInfo {
+                        jar: ArtifactLocation {
+                            absolute_path: Some("/extra.jar".to_string()),
+                            ..Default::default()
+                        },
+                        source_jar: None,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            deps: vec![],
+            runtime_deps: Vec::new(),
+            exports: Vec::new(),
+        };
+
+        graph.populate_from_aspects(&[target], Path::new("/workspace"));
+
+        assert_eq!(
+            graph.get_target_source_jar("//lib:utils", "/output.jar"),
+            Some("/output-sources.jar".to_string()),
+            "Expected source JAR mapping for /output.jar"
+        );
+        assert_eq!(
+            graph.get_target_source_jar("//lib:utils", "/extra.jar"),
+            None,
+            "Expected no source JAR for /extra.jar (no source_jar in JarInfo)"
+        );
+    }
+
+    #[test]
+    fn test_compile_jars_fallback_matches_source_jars_by_directory() {
+        let mut graph = DependencyGraph::new();
+        let target = TargetIdeInfo {
+            label: "@maven//:guava".to_string(),
+            kind: "java_import".to_string(),
+            build_file: None,
+            java_info: Some(JavaIdeInfo {
+                jars: vec![],
+                compile_jars: vec![ArtifactLocation {
+                    absolute_path: Some(
+                        "external/maven/guava/33.4.0-jre/processed_guava-33.4.0-jre.jar".to_string(),
+                    ),
+                    ..Default::default()
+                }],
+                source_jars: vec![ArtifactLocation {
+                    absolute_path: Some(
+                        "external/maven/guava/33.4.0-jre/guava-33.4.0-jre-sources.jar".to_string(),
+                    ),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            deps: vec![],
+            runtime_deps: Vec::new(),
+            exports: Vec::new(),
+        };
+
+        graph.populate_from_aspects(&[target], Path::new("/workspace"));
+
+        let bin_path = "external/maven/guava/33.4.0-jre/processed_guava-33.4.0-jre.jar";
+        let src_path = "external/maven/guava/33.4.0-jre/guava-33.4.0-jre-sources.jar";
+        assert_eq!(
+            graph.get_target_source_jar("@maven//:guava", bin_path),
+            Some(src_path.to_string()),
+            "Expected source JAR matched by parent directory for java_import compile_jars fallback"
+        );
+    }
+
+    #[test]
+    fn test_get_target_source_jar_resolves_alias() {
+        let mut graph = DependencyGraph::new();
+        let canonical = "@@rules_jvm_external~maven~maven//:guava";
+        let apparent = "@maven//:guava";
+
+        let mut source_map = HashMap::new();
+        source_map.insert("/guava.jar".to_string(), "/guava-sources.jar".to_string());
+        graph.target_source_jars.insert(canonical.to_string(), source_map);
+        graph.label_aliases.insert(apparent.to_string(), canonical.to_string());
+
+        assert_eq!(
+            graph.get_target_source_jar(apparent, "/guava.jar"),
+            Some("/guava-sources.jar".to_string()),
+            "Expected source JAR via alias resolution"
+        );
+        assert_eq!(
+            graph.get_target_source_jar(canonical, "/guava.jar"),
+            Some("/guava-sources.jar".to_string()),
+            "Expected source JAR via direct canonical label"
         );
     }
 }

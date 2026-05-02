@@ -338,7 +338,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
         });
         if let Ok(aspect_results) = batch_result {
             let mut graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
-            graph.populate_from_aspects(&aspect_results);
+            graph.populate_from_aspects(&aspect_results, &state.workspace_root);
             log::info!(
                 "Populated graph with batch aspect data: {} targets, {} with JARs",
                 aspect_results.len(),
@@ -410,6 +410,12 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
         match bazel_graph::ComputedClasspath::compute_for(&graph, &label, target_kind) {
             Ok(computed) => {
                 let entries = computed.to_pipe_delimited_entries();
+                eprintln!("[bazel-jdt] nativeComputeClasspath '{}' -> {} entries (graph path)", label, entries.len());
+                for entry in &entries {
+                    if entry.contains("-sources") || entry.contains("source") {
+                        eprintln!("[bazel-jdt]   SOURCE entry: {}", entry);
+                    }
+                }
                 if let Ok(json) = serde_json::to_string(&computed) {
                     let _ = state.cache.put_classpath(&label, &json);
                 }
@@ -428,6 +434,12 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
     match run_full_resolution(state, &label, state.shutdown_signal()) {
         Ok(resolved) => {
             let entries = resolved.to_pipe_delimited_entries();
+            eprintln!("[bazel-jdt] nativeComputeClasspath '{}' -> {} entries (slow path)", label, entries.len());
+            for entry in &entries {
+                if entry.contains("-sources") || entry.contains("source") {
+                    eprintln!("[bazel-jdt]   SOURCE entry: {}", entry);
+                }
+            }
             if let Ok(json) = serde_json::to_string(&resolved) {
                 let _ = state.cache.put_classpath(&label, &json);
             }
@@ -578,7 +590,7 @@ fn run_full_resolution(
 
     {
         let mut graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
-        graph.populate_from_aspects(&aspect_results);
+        graph.populate_from_aspects(&aspect_results, &state.workspace_root);
         log::info!(
             "Populated graph with {} aspect results for slow-path resolution",
             aspect_results.len()

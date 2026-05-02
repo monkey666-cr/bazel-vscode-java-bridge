@@ -122,10 +122,11 @@ impl ComputedClasspath {
             if let Some(jars) = graph.get_target_jars(dep_label) {
                 for jar in jars {
                     if seen_jars.insert(jar.clone()) {
+                        let source_path = graph.get_target_source_jar(dep_label, jar);
                         entries.push(ClasspathEntry {
                             entry_type: ClasspathEntryType::Library,
                             path: jar.clone(),
-                            source_attachment_path: None,
+                            source_attachment_path: source_path,
                             is_test: dep_is_testonly,
                             is_exported: false,
                             access_rules: Vec::new(),
@@ -162,10 +163,11 @@ impl ComputedClasspath {
 
         if let Some(jars) = graph.get_target_jars(target_label) {
             for jar in jars {
+                let source_path = graph.get_target_source_jar(target_label, jar);
                 entries.push(ClasspathEntry {
                     entry_type: ClasspathEntryType::Library,
                     path: jar.clone(),
-                    source_attachment_path: None,
+                    source_attachment_path: source_path,
                     is_test: false,
                     is_exported: false,
                     access_rules: Vec::new(),
@@ -264,6 +266,7 @@ fn is_bazel_internal_label(label: &str) -> bool {
 mod tests {
     use super::*;
     use bazel_aspect::{ArtifactLocation, JarInfo, JavaIdeInfo, TargetIdeInfo};
+    use std::path::Path;
 
     fn make_target(label: &str, deps: Vec<&str>, jar_paths: Vec<&str>) -> TargetIdeInfo {
         let jars: Vec<JarInfo> = jar_paths
@@ -308,7 +311,7 @@ mod tests {
             make_target("@@rules_cc++ext//:compiler", vec![], vec![]),
         ];
 
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
@@ -335,7 +338,7 @@ mod tests {
             make_target("//lib:utils", vec![], vec![]),
         ];
 
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
@@ -367,7 +370,7 @@ mod tests {
             make_target("//lib:api", vec![], vec![]),
         ];
 
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
 
@@ -393,7 +396,7 @@ mod tests {
             test_target,
             make_target("//lib:greeter_lib", vec![], vec!["/greeter.jar"]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
@@ -417,7 +420,7 @@ mod tests {
         let mut test_helpers = make_target("//lib:test_helpers", vec![], vec!["/helpers.jar"]);
         test_helpers.kind = "java_test".to_string();
         let results = vec![test_target, test_helpers];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app_test", TargetKind::JavaTest).unwrap();
@@ -442,7 +445,7 @@ mod tests {
             make_target("//app:app", vec!["//lib:test_helpers"], vec!["/app.jar"]),
             test_helpers,
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -463,7 +466,7 @@ mod tests {
             make_target("//app:app", vec!["//lib:utils"], vec!["/app.jar"]),
             make_target("//lib:utils", vec![], vec!["/utils.jar"]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -492,7 +495,7 @@ mod tests {
             make_target("//app:app", vec!["//lib:api"], vec!["/app.jar"]),
             make_target("//lib:api", vec![], vec![]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -525,7 +528,7 @@ mod tests {
             make_target("//app:app", vec!["@maven//:guava"], vec!["/app.jar"]),
             make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -560,7 +563,7 @@ mod tests {
             make_target("@@bazel_tools//tools/jdk:toolchain", vec![], vec![]),
             make_target("@@platforms//cpu:cpu", vec![], vec![]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -593,7 +596,7 @@ mod tests {
                 vec!["/guava-33.4.0-jre.jar"],
             ),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -631,7 +634,7 @@ mod tests {
             make_target("@@maven//:guava", vec![], vec!["/guava.jar"]),
             make_target("//service:api", vec![], vec![]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -683,7 +686,7 @@ mod tests {
             make_target("//app:app", vec!["@@maven//:some_target"], vec!["/app.jar"]),
             make_target("@@maven//:some_target", vec![], vec![]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -714,7 +717,7 @@ mod tests {
             make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
             make_target("//lib:api", vec![], vec![]),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -769,7 +772,7 @@ mod tests {
                 "/guava.jar",
             ),
         ];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let cp =
             ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
@@ -794,7 +797,7 @@ mod tests {
             vec![],
             "/guava.jar",
         )];
-        graph.populate_from_aspects(&results);
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
 
         let jars = graph.get_target_jars("@maven//:com_google_guava_guava");
         assert!(
@@ -887,5 +890,114 @@ mod tests {
             runtime_deps: Vec::new(),
             exports: Vec::new(),
         }
+    }
+
+    fn make_target_with_source_jar(
+        label: &str,
+        deps: Vec<&str>,
+        jar_path: &str,
+        source_jar_path: &str,
+    ) -> TargetIdeInfo {
+        TargetIdeInfo {
+            label: label.to_string(),
+            kind: "java_library".to_string(),
+            build_file: None,
+            java_info: Some(JavaIdeInfo {
+                jars: vec![JarInfo {
+                    jar: ArtifactLocation {
+                        absolute_path: Some(jar_path.to_string()),
+                        ..Default::default()
+                    },
+                    source_jar: Some(ArtifactLocation {
+                        absolute_path: Some(source_jar_path.to_string()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            deps: deps.iter().map(|s| s.to_string()).collect(),
+            runtime_deps: Vec::new(),
+            exports: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_classpath_entry_includes_source_attachment() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["@maven//:guava"], vec!["/app.jar"]),
+            make_target_with_source_jar(
+                "@maven//:guava",
+                vec![],
+                "/guava.jar",
+                "/guava-sources.jar",
+            ),
+        ];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let guava_entry = cp
+            .entries
+            .iter()
+            .find(|e| e.path == "/guava.jar")
+            .expect("Expected guava.jar entry");
+        assert_eq!(
+            guava_entry.source_attachment_path,
+            Some("/guava-sources.jar".to_string()),
+            "Expected source attachment for guava.jar"
+        );
+    }
+
+    #[test]
+    fn test_classpath_entry_no_source_when_not_available() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target("//app:app", vec!["@maven//:guava"], vec!["/app.jar"]),
+            make_target_with_jar_path("@maven//:guava", vec![], "/guava.jar"),
+        ];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary).unwrap();
+
+        let guava_entry = cp
+            .entries
+            .iter()
+            .find(|e| e.path == "/guava.jar")
+            .expect("Expected guava.jar entry");
+        assert!(
+            guava_entry.source_attachment_path.is_none(),
+            "Expected no source attachment when JarInfo has no source_jar"
+        );
+    }
+
+    #[test]
+    fn test_pipe_delimited_includes_source_path() {
+        let entry = ClasspathEntry {
+            entry_type: ClasspathEntryType::Library,
+            path: "/guava.jar".to_string(),
+            source_attachment_path: Some("/guava-sources.jar".to_string()),
+            is_test: false,
+            is_exported: false,
+            access_rules: Vec::new(),
+            visibility: Visibility::default(),
+        };
+        let cp = ComputedClasspath {
+            target_label: "//app:app".to_string(),
+            entries: vec![entry],
+            source_roots: Vec::new(),
+            generated_source_dirs: Vec::new(),
+            annotation_processors: Vec::new(),
+            output_jars: Vec::new(),
+        };
+        let lines = cp.to_pipe_delimited_entries();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            lines[0], "LIB|/guava.jar|/guava-sources.jar|false|false|",
+            "Expected source path in pipe-delimited field 2"
+        );
     }
 }
