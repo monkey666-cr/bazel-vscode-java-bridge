@@ -63,9 +63,13 @@ public final class BazelBridge {
     }
 
     public String[] discoverTargets() {
+        return discoverTargets(null);
+    }
+
+    public String[] discoverTargets(String[] scopePatterns) {
         long h = snapshotHandle();
         try {
-            return jniExecutor.submit(() -> nativeDiscoverTargets(h))
+            return jniExecutor.submit(() -> nativeDiscoverTargets(h, scopePatterns))
                 .get(JNI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -147,7 +151,7 @@ public final class BazelBridge {
 
     private native long nativeInitialize(String workspacePath, String bazelPath, String cacheDir);
     private native void nativeShutdown(long handle);
-    private native String[] nativeDiscoverTargets(long handle);
+    private native String[] nativeDiscoverTargets(long handle, String[] scopePatterns);
     private native String[] nativeComputeClasspath(long handle, String targetLabel);
     private native int nativeGetSyncState(long handle);
     private native void nativeCleanCache(long handle);

@@ -54,9 +54,18 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Importing Bazel workspace: " + workspacePath));
 
+        String[] scopePatterns = null;
+        BazelProjectView projectView = BazelProjectView.parse(rootFolder);
+        if (projectView != null && projectView.hasScope()) {
+            java.util.List<String> patterns = projectView.getScopePatterns();
+            scopePatterns = patterns.toArray(new String[0]);
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Scoped import with " + patterns.size() + " patterns from .bazelproject"));
+        }
+
         String[] targets;
         try {
-            targets = bridge.discoverTargets();
+            targets = bridge.discoverTargets(scopePatterns);
         } catch (Exception e) {
             throw new CoreException(
                 new Status(IStatus.ERROR, "com.bazel.jdt",

@@ -41,7 +41,17 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 cacheDir = DEFAULT_CACHE_DIR;
             }
             bridge.initialize(workspacePath, bazelPath, cacheDir);
-            String[] targets = bridge.discoverTargets();
+
+            String[] scopePatterns = null;
+            if (arguments.size() > 3 && arguments.get(3) instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> patterns = (List<String>) arguments.get(3);
+                if (!patterns.isEmpty()) {
+                    scopePatterns = patterns.toArray(new String[0]);
+                }
+            }
+
+            String[] targets = bridge.discoverTargets(scopePatterns);
             BazelClasspathManager.refreshClasspath();
             return null;
         } catch (Exception e) {

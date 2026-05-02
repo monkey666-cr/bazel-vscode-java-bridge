@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { registerCommands } from './commands';
 import { createStatusBar } from './statusBar';
+import { getConfig } from './config';
+import { parseBazelprojectFile, resolveScopePatterns } from './bazelproject';
 
 export async function activate(context: vscode.ExtensionContext) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -14,22 +17,54 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    // Do NOT call bazel-jdt.importProject here.
-    // BazelProjectImporter is auto-triggered by JDT.LS during workspace initialization
-    // (via org.eclipse.jdt.ls.core.importers extension point in plugin.xml).
-    // Calling it again from here causes a race: both paths call bridge.initialize(),
-    // and the second call shuts down the state created by the first, producing
-    // "Stale handle: state has been re-initialized" on the first path's discoverTargets().
-    //
-    // Do NOT add an onDidSaveTextDocument handler for BUILD files here.
-    // BUILD file changes are detected by Java-side BazelBuildSupport.fileChanged()
-    // via JDT.LS's IBuildSupport extension point, which is more reliable and covers
-    // non-editor file changes too.
-
     const statusBarItem = createStatusBar(context);
     registerCommands(context);
 
-    context.subscriptions.push(statusBarItem);
+    const bazelprojectPattern = new vscode.RelativePattern(workspaceRoot, '.bazelproject');
+    const watcher = vscode.workspace.createFileSystemWatcher(bazelprojectPattern);
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    let wizardActive = false;
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('_bazel-jdt.setWizardActive', (active: boolean) => {
+            wizardActive = active;
+            if (active) {
+                setTimeout(() => { wizardActive = false; }, 5000);
+            }
+        })
+    );
+
+    const triggerReimport = () => {
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(async () => {
+            if (wizardActive) {
+                return;
+            }
+
+            const config = getConfig();
+            const viewConfig = parseBazelprojectFile(path.join(workspaceRoot, '.bazelproject'));
+            const patterns = viewConfig ? resolveScopePatterns(viewConfig) : [];
+
+            try {
+                await vscode.commands.executeCommand('java.execute.workspaceCommand',
+                    'bazel-jdt.importProject', workspaceRoot, config.bazelPath, config.cacheDir,
+                    patterns);
+                vscode.window.showInformationMessage('Bazel project re-imported (scope changed)');
+            } catch {
+                // Silently ignore — re-import is best-effort
+            }
+        }, 1000);
+    };
+
+    context.subscriptions.push(
+        watcher.onDidChange(triggerReimport),
+        watcher.onDidCreate(triggerReimport),
+        watcher.onDidDelete(triggerReimport),
+        watcher,
+        statusBarItem,
+    );
 }
 
 export async function deactivate() {

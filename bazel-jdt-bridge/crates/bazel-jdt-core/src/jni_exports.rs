@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use bazel_graph::TargetKind;
-use jni::objects::{JClass, JObject, JString};
+use jni::objects::{JClass, JObject, JObjectArray, JString};
 use jni::sys::{jint, jlong, jobjectArray, jsize};
 use jni::JNIEnv;
 
@@ -57,6 +57,29 @@ fn create_string_array(
         env.set_object_array_element(&array, i as jsize, java_str)?;
     }
     Ok(array.into_raw())
+}
+
+fn parse_java_string_array(env: &mut JNIEnv, array: &JObjectArray) -> Option<Vec<String>> {
+    let len = match env.get_array_length(array) {
+        Ok(l) => l,
+        Err(_) => return None,
+    };
+    if len == 0 {
+        return None;
+    }
+    let mut result = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        let s = env.get_object_array_element(array, i).ok().and_then(|obj| {
+            let jstr = JString::from(obj);
+            env.get_string(&jstr).ok().map(String::from)
+        });
+        if let Some(s) = s {
+            result.push(s);
+        } else {
+            log::warn!("Null or invalid string at index {} in scope_patterns array, skipping", i);
+        }
+    }
+    if result.is_empty() { None } else { Some(result) }
 }
 
 #[no_mangle]
@@ -253,6 +276,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
     mut env: JNIEnv,
     _class: JClass,
     handle: jlong,
+    scope_patterns: JObjectArray,
 ) -> jobjectArray {
     let state = match get_state(&mut env, handle) {
         Some(s) => s,
@@ -260,10 +284,13 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
     };
     state.set_sync_state(SyncState::Syncing);
 
+    let scope = parse_java_string_array(&mut env, &scope_patterns);
+    let scope_ref: Option<&[String]> = scope.as_deref();
+
     let mut shutdown_rx = state.shutdown_signal();
     let targets = match state.runtime.block_on(async {
         tokio::select! {
-            result = tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets()) => {
+            result = tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets(scope_ref)) => {
                 match result {
                     Ok(Ok(t)) => Ok(t),
                     Ok(Err(e)) => Err(format!(

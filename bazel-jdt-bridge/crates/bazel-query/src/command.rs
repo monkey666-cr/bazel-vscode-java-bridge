@@ -57,15 +57,17 @@ impl BazelInvoker {
         Self::new(bazel_binary_name(), workspace_root, aspect_label)
     }
 
-    /// Discover all Java targets in the workspace
-    pub async fn discover_java_targets(&self) -> Result<Vec<String>, BazelError> {
+    /// Discover Java targets. `None` or empty scope = all targets.
+    /// Patterns starting with `-` are excluded via `except`.
+    pub async fn discover_java_targets(
+        &self,
+        scope_patterns: Option<&[String]>,
+    ) -> Result<Vec<String>, BazelError> {
+        let query = build_java_target_query(scope_patterns);
+
         let output = Command::new(&self.bazel_path)
             .current_dir(&self.workspace_root)
-            .args([
-                "query",
-                "--output=label",
-                "kind(java_library, //...:*) union kind(java_binary, //...:*) union kind(java_test, //...:*) union kind(java_import, //...:*)",
-            ])
+            .args(["query", "--output=label", &query])
             .output()
             .await?;
 
@@ -163,6 +165,55 @@ impl BazelInvoker {
     }
 }
 
+/// Build a bazel query string for discovering Java targets.
+/// `None` or empty scope → query all targets under `//...:*`.
+/// Patterns starting with `-` are treated as negative patterns using `except`.
+pub fn build_java_target_query(scope_patterns: Option<&[String]>) -> String {
+    const JAVA_KINDS: &[&str] = &["java_library", "java_binary", "java_test", "java_import"];
+    const DEFAULT_SCOPE: &str = "//...:*";
+
+    let patterns = match scope_patterns {
+        Some(p) if !p.is_empty() => p,
+        _ => {
+            return JAVA_KINDS
+                .iter()
+                .map(|k| format!("kind({}, {})", k, DEFAULT_SCOPE))
+                .collect::<Vec<_>>()
+                .join(" union ");
+        }
+    };
+
+    let (positive, negative): (Vec<_>, Vec<_>) =
+        patterns.iter().partition(|p| !p.starts_with('-'));
+
+    let scope = if positive.is_empty() {
+        DEFAULT_SCOPE.to_string()
+    } else {
+        positive
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(" union ")
+    };
+
+    let mut query = JAVA_KINDS
+        .iter()
+        .map(|k| format!("kind({}, {})", k, &scope))
+        .collect::<Vec<_>>()
+        .join(" union ");
+
+    if !negative.is_empty() {
+        let neg_patterns: Vec<&str> = negative
+            .iter()
+            .map(|p| p.strip_prefix('-').unwrap_or(p))
+            .collect();
+        query.push_str(" except ");
+        query.push_str(&neg_patterns.join(" union "));
+    }
+
+    query
+}
+
 fn resolve_artifact_paths(info: &mut bazel_aspect::TargetIdeInfo, workspace_root: &Path) {
     let resolve_loc = |loc: &mut bazel_aspect::ArtifactLocation| {
         if loc.absolute_path.is_none() {
@@ -201,5 +252,84 @@ fn resolve_artifact_paths(info: &mut bazel_aspect::TargetIdeInfo, workspace_root
                 resolve_loc(src);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_query_no_scope() {
+        let query = build_java_target_query(None);
+        assert!(query.contains("kind(java_library, //...:*)"));
+        assert!(query.contains("kind(java_binary, //...:*)"));
+        assert!(query.contains("kind(java_test, //...:*)"));
+        assert!(query.contains("kind(java_import, //...:*)"));
+        assert!(!query.contains("except"));
+    }
+
+    #[test]
+    fn test_build_query_empty_scope() {
+        let empty: Vec<String> = vec![];
+        let query = build_java_target_query(Some(&empty));
+        assert!(query.contains("kind(java_library, //...:*)"));
+        assert!(!query.contains("except"));
+    }
+
+    #[test]
+    fn test_build_query_with_scope() {
+        let patterns = vec!["//services/...:*".to_string()];
+        let query = build_java_target_query(Some(&patterns));
+        assert!(query.contains("kind(java_library, //services/...:*)"));
+        assert!(query.contains("kind(java_binary, //services/...:*)"));
+        assert!(!query.contains("//...:*"));
+        assert!(!query.contains("except"));
+    }
+
+    #[test]
+    fn test_build_query_with_multiple_scopes() {
+        let patterns = vec![
+            "//services/...:*".to_string(),
+            "//libs/core/...:*".to_string(),
+        ];
+        let query = build_java_target_query(Some(&patterns));
+        assert!(query.contains("//services/...:*"));
+        assert!(query.contains("//libs/core/...:*"));
+        assert!(!query.contains("except"));
+    }
+
+    #[test]
+    fn test_build_query_with_negative_patterns() {
+        let patterns = vec![
+            "//...:*".to_string(),
+            "-//experimental/...:*".to_string(),
+        ];
+        let query = build_java_target_query(Some(&patterns));
+        assert!(query.contains("kind(java_library, //...:*)"));
+        assert!(query.contains("except //experimental/...:*"));
+        assert!(!query.contains("-//"));
+    }
+
+    #[test]
+    fn test_build_query_multiple_negative_patterns() {
+        let patterns = vec![
+            "//...:*".to_string(),
+            "-//experimental/...:*".to_string(),
+            "-//third_party/...:*".to_string(),
+        ];
+        let query = build_java_target_query(Some(&patterns));
+        assert!(query.contains("except"));
+        assert!(query.contains("//experimental/...:*"));
+        assert!(query.contains("//third_party/...:*"));
+        assert!(!query.contains("-//"));
+    }
+
+    #[test]
+    fn test_build_query_only_negative_uses_default_scope() {
+        let patterns = vec!["-//experimental/...:*".to_string()];
+        let query = build_java_target_query(Some(&patterns));
+        assert!(query.contains("kind(java_library, //...:*)"));
+        assert!(query.contains("except //experimental/...:*"));
     }
 }
