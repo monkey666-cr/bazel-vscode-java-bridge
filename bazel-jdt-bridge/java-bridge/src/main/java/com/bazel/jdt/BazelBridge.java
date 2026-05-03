@@ -67,9 +67,13 @@ public final class BazelBridge {
     }
 
     public String[] discoverTargets(String[] scopePatterns) {
+        return discoverTargets(scopePatterns, null);
+    }
+
+    public String[] discoverTargets(String[] scopePatterns, String[] buildFlags) {
         long h = snapshotHandle();
         try {
-            return jniExecutor.submit(() -> nativeDiscoverTargets(h, scopePatterns))
+            return jniExecutor.submit(() -> nativeDiscoverTargets(h, scopePatterns, buildFlags))
                 .get(JNI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -86,7 +90,7 @@ public final class BazelBridge {
     public String[] computeClasspath(String targetLabel) {
         long h = snapshotHandle();
         try {
-            return jniExecutor.submit(() -> nativeComputeClasspath(h, targetLabel))
+            return jniExecutor.submit(() -> nativeComputeClasspath(h, targetLabel, null))
                 .get(JNI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -151,8 +155,8 @@ public final class BazelBridge {
 
     private native long nativeInitialize(String workspacePath, String bazelPath, String cacheDir);
     private native void nativeShutdown(long handle);
-    private native String[] nativeDiscoverTargets(long handle, String[] scopePatterns);
-    private native String[] nativeComputeClasspath(long handle, String targetLabel);
+    private native String[] nativeDiscoverTargets(long handle, String[] scopePatterns, String[] buildFlags);
+    private native String[] nativeComputeClasspath(long handle, String targetLabel, String[] buildFlags);
     private native int nativeGetSyncState(long handle);
     private native void nativeCleanCache(long handle);
     private native String[] nativeGetPendingChanges(long handle);

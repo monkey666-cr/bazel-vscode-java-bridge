@@ -1,11 +1,13 @@
 package com.bazel.jdt;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IAccessRule;
+import org.eclipse.jdt.core.IClasspathAttribute;
 import org.eclipse.jdt.core.IClasspathContainer;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
@@ -17,8 +19,14 @@ public class BazelClasspathContainer implements IClasspathContainer {
     public static final BazelClasspathContainer EMPTY = new BazelClasspathContainer((String[]) null);
 
     private final IClasspathEntry[] entries;
+    private final List<String> testSourcePatterns;
 
     public BazelClasspathContainer(String[] rawEntries) {
+        this(rawEntries, Collections.emptyList());
+    }
+
+    public BazelClasspathContainer(String[] rawEntries, List<String> testSourcePatterns) {
+        this.testSourcePatterns = testSourcePatterns != null ? testSourcePatterns : Collections.emptyList();
         List<IClasspathEntry> parsed = new ArrayList<>();
         if (rawEntries == null) {
             this.entries = parsed.toArray(new IClasspathEntry[0]);
@@ -47,6 +55,26 @@ public class BazelClasspathContainer implements IClasspathContainer {
                 IPath jarPath = Path.fromPortableString(path);
                 IPath srcPath = sourcePath != null ? Path.fromPortableString(sourcePath) : null;
                 IAccessRule[] accessRules = parseAccessRules(accessRulesStr);
+                boolean matchesTestPattern = false;
+                if (srcPath != null) {
+                    String srcPathStr = srcPath.toPortableString();
+                    for (String pattern : testSourcePatterns) {
+                        String prefix = pattern.replace("/**", "").replace("**", "");
+                        if (!prefix.isEmpty() && srcPathStr.contains(prefix)) {
+                            matchesTestPattern = true;
+                            break;
+                        }
+                    }
+                }
+                boolean effectiveIsTest = isTest || matchesTestPattern;
+                if (effectiveIsTest) {
+                    List<IClasspathAttribute> attrs = new ArrayList<>();
+                    attrs.add(JavaCore.newClasspathAttribute(IClasspathAttribute.TEST, "true"));
+                    return JavaCore.newLibraryEntry(jarPath, srcPath, null,
+                        accessRules,
+                        attrs.toArray(new IClasspathAttribute[0]),
+                        isExported);
+                }
                 return JavaCore.newLibraryEntry(jarPath, srcPath, null,
                     accessRules,
                     new org.eclipse.jdt.core.IClasspathAttribute[0],

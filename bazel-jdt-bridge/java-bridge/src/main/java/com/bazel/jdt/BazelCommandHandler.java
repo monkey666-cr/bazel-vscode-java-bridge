@@ -51,7 +51,16 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 }
             }
 
-            String[] targets = bridge.discoverTargets(scopePatterns);
+            String[] buildFlags = null;
+            if (arguments.size() > 4 && arguments.get(4) instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<String> flags = (List<String>) arguments.get(4);
+                if (!flags.isEmpty()) {
+                    buildFlags = flags.toArray(new String[0]);
+                }
+            }
+
+            String[] targets = bridge.discoverTargets(scopePatterns, buildFlags);
             BazelClasspathManager.refreshClasspath();
             return null;
         } catch (Exception e) {

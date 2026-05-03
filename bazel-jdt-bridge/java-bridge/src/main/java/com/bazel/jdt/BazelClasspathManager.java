@@ -13,6 +13,7 @@ import org.eclipse.jdt.core.IClasspathContainer;
 import org.eclipse.jdt.core.JavaCore;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class BazelClasspathManager {
@@ -41,7 +42,7 @@ public class BazelClasspathManager {
                 }
             }
             LOG.log(new Status(IStatus.INFO, "com.bazel.jdt", sb.toString()));
-            BazelClasspathContainer container = new BazelClasspathContainer(rawEntries);
+            BazelClasspathContainer container = new BazelClasspathContainer(rawEntries, getTestSourcePatterns(project));
             TargetProjectMapping.storeCachedClasspath(project, targetLabel, rawEntries);
             JavaCore.setClasspathContainer(
                 BazelClasspathContainer.CONTAINER_PATH,
@@ -110,6 +111,21 @@ public class BazelClasspathManager {
     /**
      * Extract target labels from a project that are affected by the given changed files.
      */
+    private static List<String> getTestSourcePatterns(IProject project) {
+        try {
+            org.eclipse.core.resources.IWorkspaceRoot wsRoot = project.getWorkspace().getRoot();
+            java.io.File workspaceRoot = wsRoot.getLocation().toFile();
+            BazelProjectView projectView = BazelProjectView.parse(workspaceRoot);
+            if (projectView != null && !projectView.getTestSourcePatterns().isEmpty()) {
+                return projectView.getTestSourcePatterns();
+            }
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                "Failed to get test source patterns", e));
+        }
+        return Collections.emptyList();
+    }
+
     private static List<String> extractTargetLabels(IProject project, List<String> changedFiles) {
         List<String> labels = new ArrayList<>();
         try {

@@ -62,14 +62,20 @@ impl BazelInvoker {
     pub async fn discover_java_targets(
         &self,
         scope_patterns: Option<&[String]>,
+        build_flags: Option<&[String]>,
     ) -> Result<Vec<String>, BazelError> {
         let query = build_java_target_query(scope_patterns);
 
-        let output = Command::new(&self.bazel_path)
-            .current_dir(&self.workspace_root)
-            .args(["query", "--output=label", &query])
-            .output()
-            .await?;
+        let mut cmd = Command::new(&self.bazel_path);
+        cmd.current_dir(&self.workspace_root);
+        cmd.arg("query");
+        if let Some(flags) = build_flags {
+            for flag in flags {
+                cmd.arg(flag);
+            }
+        }
+        cmd.args(["--output=label", &query]);
+        let output = cmd.output().await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -94,20 +100,25 @@ impl BazelInvoker {
         &self,
         targets: &[String],
         aspect_file: &str,
+        build_flags: Option<&[String]>,
     ) -> Result<String, BazelError> {
         let targets_arg = targets.join(" ");
 
-        let output = Command::new(&self.bazel_path)
-            .current_dir(&self.workspace_root)
-            .args([
-                "build",
-                &format!("--aspects={}", aspect_file),
-                "--output_groups=intellij-info-java,intellij-info-generic",
-                "--show_result=100",
-                &targets_arg,
-            ])
-            .output()
-            .await?;
+        let mut cmd = Command::new(&self.bazel_path);
+        cmd.current_dir(&self.workspace_root);
+        cmd.arg("build");
+        if let Some(flags) = build_flags {
+            for flag in flags {
+                cmd.arg(flag);
+            }
+        }
+        cmd.args([
+            &format!("--aspects={}", aspect_file),
+            "--output_groups=intellij-info-java,intellij-info-generic",
+            "--show_result=100",
+            &targets_arg,
+        ]);
+        let output = cmd.output().await?;
 
         let stderr = String::from_utf8(output.stderr)?;
 
@@ -131,11 +142,19 @@ impl BazelInvoker {
         &self,
         targets: &[String],
     ) -> Result<Vec<TargetIdeInfo>, BazelError> {
+        self.resolve_full_classpath_with_flags(targets, None).await
+    }
+
+    pub async fn resolve_full_classpath_with_flags(
+        &self,
+        targets: &[String],
+        build_flags: Option<&[String]>,
+    ) -> Result<Vec<TargetIdeInfo>, BazelError> {
         if targets.is_empty() {
             return Ok(Vec::new());
         }
 
-        let aspect_output = self.build_with_aspects(targets, &self.aspect_label).await?;
+        let aspect_output = self.build_with_aspects(targets, &self.aspect_label, build_flags).await?;
 
         let info_files = crate::output::parse_aspect_output_locations(&aspect_output);
 

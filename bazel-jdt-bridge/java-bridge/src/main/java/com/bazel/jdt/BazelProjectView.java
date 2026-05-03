@@ -17,6 +17,11 @@ public final class BazelProjectView {
 
     private final List<String> directories = new ArrayList<>();
     private final List<String> targets = new ArrayList<>();
+    private final List<String> buildFlags = new ArrayList<>();
+    private final List<String> syncFlags = new ArrayList<>();
+    private final List<String> testSources = new ArrayList<>();
+    private final List<String> excludeTarget = new ArrayList<>();
+    private final List<String> imports = new ArrayList<>();
     private boolean deriveTargetsFromDirectories = true;
 
     private BazelProjectView() {}
@@ -43,6 +48,17 @@ public final class BazelProjectView {
                     continue;
                 }
 
+                int colonIdx = trimmed.indexOf(':');
+                if (colonIdx > 0 && !trimmed.endsWith(":")) {
+                    String key = trimmed.substring(0, colonIdx).trim().toLowerCase();
+                    String value = trimmed.substring(colonIdx + 1).trim();
+                    if ("derive_targets_from_directories".equals(key)) {
+                        view.deriveTargetsFromDirectories = "true".equalsIgnoreCase(value);
+                        currentSection = null;
+                        continue;
+                    }
+                }
+
                 if (currentSection == null) {
                     continue;
                 }
@@ -56,6 +72,22 @@ public final class BazelProjectView {
                         break;
                     case "targets":
                         view.targets.add(trimmed);
+                        break;
+                    case "build_flags":
+                        view.buildFlags.add(trimmed);
+                        break;
+                    case "sync_flags":
+                        view.syncFlags.add(trimmed);
+                        break;
+                    case "test_sources":
+                        view.testSources.add(trimmed);
+                        break;
+                    case "exclude_target":
+                        view.excludeTarget.add(trimmed);
+                        break;
+                    case "import":
+                    case "try_import":
+                        view.imports.add(trimmed);
                         break;
                     default:
                         break;
@@ -91,6 +123,15 @@ public final class BazelProjectView {
         }
 
         patterns.addAll(targets);
+
+        for (String target : excludeTarget) {
+            if (target.startsWith("-")) {
+                patterns.add(target);
+            } else {
+                patterns.add("-" + target);
+            }
+        }
+
         return patterns;
     }
 
@@ -107,6 +148,26 @@ public final class BazelProjectView {
     }
 
     public boolean hasScope() {
-        return !directories.isEmpty() || !targets.isEmpty();
+        return !directories.isEmpty() || !targets.isEmpty() || !excludeTarget.isEmpty();
+    }
+
+    public List<String> getBuildFlags() {
+        return Collections.unmodifiableList(buildFlags);
+    }
+
+    public List<String> getSyncFlags() {
+        return Collections.unmodifiableList(syncFlags);
+    }
+
+    public List<String> getTestSourcePatterns() {
+        return Collections.unmodifiableList(testSources);
+    }
+
+    public List<String> getExcludeTargets() {
+        return Collections.unmodifiableList(excludeTarget);
+    }
+
+    public List<String> getImports() {
+        return Collections.unmodifiableList(imports);
     }
 }

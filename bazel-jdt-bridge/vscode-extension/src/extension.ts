@@ -46,11 +46,12 @@ export async function activate(context: vscode.ExtensionContext) {
             const config = getConfig();
             const viewConfig = parseBazelprojectFile(path.join(workspaceRoot, '.bazelproject'));
             const patterns = viewConfig ? resolveScopePatterns(viewConfig) : [];
+            const buildFlags = viewConfig ? viewConfig.buildFlags : [];
 
             try {
                 await vscode.commands.executeCommand('java.execute.workspaceCommand',
                     'bazel-jdt.importProject', workspaceRoot, config.bazelPath, config.cacheDir,
-                    patterns);
+                    patterns, buildFlags);
                 vscode.window.showInformationMessage('Bazel project re-imported (scope changed)');
             } catch {
                 // Silently ignore — re-import is best-effort

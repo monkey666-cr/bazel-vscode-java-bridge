@@ -57,6 +57,19 @@
                     },
                     "default": [],
                     "description": "Directories (relative to workspace root) to scan one level deeper for BUILD files during import wizard directory selection. Default: only first-level directories with BUILD files are shown."
+                },
+                "bazel-jdt.buildFlags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Default Bazel build flags to include in generated .bazelproject"
+                },
+                "bazel-jdt.javaLanguageLevel": {
+                    "type": "string",
+                    "default": "17",
+                    "description": "Java language level for the project (e.g., 8, 11, 17, 21)"
                 }
             }
         },

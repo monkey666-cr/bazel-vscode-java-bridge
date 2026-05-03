@@ -7,6 +7,10 @@ export interface BazelProjectViewConfig {
     buildFlags: string[];
     testSources: string[];
     imports: string[];
+    syncFlags: string[];
+    excludeTarget: string[];
+    bazelBinary: string;
+    javaLanguageLevel: string;
 }
 
 const DEFAULT_CONFIG: BazelProjectViewConfig = {
@@ -16,6 +20,10 @@ const DEFAULT_CONFIG: BazelProjectViewConfig = {
     buildFlags: [],
     testSources: [],
     imports: [],
+    syncFlags: [],
+    excludeTarget: [],
+    bazelBinary: '',
+    javaLanguageLevel: '',
 };
 
 export function parseBazelprojectFile(filePath: string): BazelProjectViewConfig | null {
@@ -28,7 +36,16 @@ export function parseBazelprojectFile(filePath: string): BazelProjectViewConfig 
 }
 
 export function parseBazelprojectContent(content: string): BazelProjectViewConfig {
-    const config: BazelProjectViewConfig = { ...DEFAULT_CONFIG, directories: [], targets: [], buildFlags: [], testSources: [], imports: [] };
+    const config: BazelProjectViewConfig = {
+        ...DEFAULT_CONFIG,
+        directories: [],
+        targets: [],
+        buildFlags: [],
+        testSources: [],
+        imports: [],
+        syncFlags: [],
+        excludeTarget: [],
+    };
     let currentSection: string | null = null;
 
     for (const rawLine of content.split('\n')) {
@@ -48,6 +65,16 @@ export function parseBazelprojectContent(content: string): BazelProjectViewConfi
             const value = directiveMatch[2].trim();
             if (key === 'derive_targets_from_directories') {
                 config.deriveTargetsFromDirectories = value.toLowerCase() === 'true';
+                currentSection = null;
+                continue;
+            }
+            if (key === 'bazel_binary') {
+                config.bazelBinary = value;
+                currentSection = null;
+                continue;
+            }
+            if (key === 'java_language_level') {
+                config.javaLanguageLevel = value;
                 currentSection = null;
                 continue;
             }
@@ -77,6 +104,12 @@ export function parseBazelprojectContent(content: string): BazelProjectViewConfi
             case 'try_import':
                 config.imports.push(line);
                 break;
+            case 'sync_flags':
+                config.syncFlags.push(line);
+                break;
+            case 'exclude_target':
+                config.excludeTarget.push(line);
+                break;
         }
     }
 
@@ -98,5 +131,11 @@ export function resolveScopePatterns(config: BazelProjectViewConfig): string[] {
     }
 
     patterns.push(...config.targets);
+
+    for (const target of config.excludeTarget) {
+        const prefix = target.startsWith('-') ? target : `-${target}`;
+        patterns.push(prefix);
+    }
+
     return patterns;
 }

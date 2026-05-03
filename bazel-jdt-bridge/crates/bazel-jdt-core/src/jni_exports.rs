@@ -277,6 +277,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
     _class: JClass,
     handle: jlong,
     scope_patterns: JObjectArray,
+    build_flags: JObjectArray,
 ) -> jobjectArray {
     let state = match get_state(&mut env, handle) {
         Some(s) => s,
@@ -286,11 +287,13 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
 
     let scope = parse_java_string_array(&mut env, &scope_patterns);
     let scope_ref: Option<&[String]> = scope.as_deref();
+    let build_flags_vec = parse_java_string_array(&mut env, &build_flags);
+    let build_flags_ref: Option<&[String]> = build_flags_vec.as_deref();
 
     let mut shutdown_rx = state.shutdown_signal();
     let targets = match state.runtime.block_on(async {
         tokio::select! {
-            result = tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets(scope_ref)) => {
+            result = tokio::time::timeout(state.query_timeout, state.invoker.discover_java_targets(scope_ref, build_flags_ref)) => {
                 match result {
                     Ok(Ok(t)) => Ok(t),
                     Ok(Err(e)) => Err(format!(
@@ -340,7 +343,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeDiscoverTargets(
             tokio::select! {
                 result = tokio::time::timeout(
                     state.aspect_timeout,
-                    state.invoker.resolve_full_classpath(&aspect_targets),
+                    state.invoker.resolve_full_classpath_with_flags(&aspect_targets, build_flags_ref),
                 ) => {
                     match result {
                         Ok(Ok(results)) => Ok(results),
@@ -390,6 +393,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
     _class: JClass,
     handle: jlong,
     target_label: JString,
+    build_flags: JObjectArray,
 ) -> jobjectArray {
     let state = match get_state(&mut env, handle) {
         Some(s) => s,
@@ -403,6 +407,9 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
             return std::ptr::null_mut();
         }
     };
+
+    let build_flags_vec = parse_java_string_array(&mut env, &build_flags);
+    let build_flags_ref: Option<&[String]> = build_flags_vec.as_deref();
 
     state.set_sync_state(SyncState::Syncing);
 
@@ -458,7 +465,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
         }
     }
 
-    match run_full_resolution(state, &label, state.shutdown_signal()) {
+    match run_full_resolution(state, &label, state.shutdown_signal(), build_flags_ref) {
         Ok(resolved) => {
             let entries = resolved.to_pipe_delimited_entries();
             eprintln!("[bazel-jdt] nativeComputeClasspath '{}' -> {} entries (slow path)", label, entries.len());
@@ -564,6 +571,7 @@ fn run_full_resolution(
     state: &BazelJdtState,
     target_label: &str,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    build_flags: Option<&[String]>,
 ) -> Result<bazel_graph::ComputedClasspath, String> {
     let targets = vec![target_label.to_string()];
 
@@ -571,7 +579,7 @@ fn run_full_resolution(
         tokio::select! {
             result = tokio::time::timeout(
                 state.aspect_timeout,
-                state.invoker.resolve_full_classpath(&targets),
+                state.invoker.resolve_full_classpath_with_flags(&targets, build_flags),
             ) => {
                 result
                 .map_err(|_| {

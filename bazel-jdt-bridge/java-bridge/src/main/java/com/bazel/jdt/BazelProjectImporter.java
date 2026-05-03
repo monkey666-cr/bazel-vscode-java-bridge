@@ -63,9 +63,14 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                 "Scoped import with " + patterns.size() + " patterns from .bazelproject"));
         }
 
+        String[] buildFlags = null;
+        if (projectView != null && !projectView.getBuildFlags().isEmpty()) {
+            buildFlags = projectView.getBuildFlags().toArray(new String[0]);
+        }
+
         String[] targets;
         try {
-            targets = bridge.discoverTargets(scopePatterns);
+            targets = bridge.discoverTargets(scopePatterns, buildFlags);
         } catch (Exception e) {
             throw new CoreException(
                 new Status(IStatus.ERROR, "com.bazel.jdt",
