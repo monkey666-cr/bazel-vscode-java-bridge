@@ -23,6 +23,8 @@ public final class BazelProjectView {
     private final List<String> excludeTarget = new ArrayList<>();
     private final List<String> imports = new ArrayList<>();
     private boolean deriveTargetsFromDirectories = true;
+    private String bazelBinary = "";
+    private String javaLanguageLevel = "";
 
     private BazelProjectView() {}
 
@@ -54,6 +56,16 @@ public final class BazelProjectView {
                     String value = trimmed.substring(colonIdx + 1).trim();
                     if ("derive_targets_from_directories".equals(key)) {
                         view.deriveTargetsFromDirectories = "true".equalsIgnoreCase(value);
+                        currentSection = null;
+                        continue;
+                    }
+                    if ("bazel_binary".equals(key)) {
+                        view.bazelBinary = value;
+                        currentSection = null;
+                        continue;
+                    }
+                    if ("java_language_level".equals(key)) {
+                        view.javaLanguageLevel = value;
                         currentSection = null;
                         continue;
                     }
@@ -169,5 +181,13 @@ public final class BazelProjectView {
 
     public List<String> getImports() {
         return Collections.unmodifiableList(imports);
+    }
+
+    public String getBazelBinary() {
+        return bazelBinary;
+    }
+
+    public String getJavaLanguageLevel() {
+        return javaLanguageLevel;
     }
 }
