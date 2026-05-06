@@ -1,5 +1,6 @@
 package com.bazel.jdt;
 
+import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -9,6 +10,9 @@ public final class BazelBridge {
     private long handle = -1;
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     private volatile ExecutorService jniExecutor = createExecutor();
+    private String lastWorkspacePath;
+    private String lastBazelPath;
+    private String lastCacheDir;
 
     private static ExecutorService createExecutor() {
         return Executors.newSingleThreadExecutor(r -> {
@@ -31,6 +35,12 @@ public final class BazelBridge {
     public void initialize(String workspacePath, String bazelPath, String cacheDir) {
         rwLock.writeLock().lock();
         try {
+            if (handle != -1
+                    && Objects.equals(workspacePath, lastWorkspacePath)
+                    && Objects.equals(bazelPath, lastBazelPath)
+                    && Objects.equals(cacheDir, lastCacheDir)) {
+                return;
+            }
             if (handle != -1) {
                 nativeShutdown(handle);
                 handle = -1;
@@ -39,6 +49,9 @@ public final class BazelBridge {
                 jniExecutor = createExecutor();
             }
             handle = nativeInitialize(workspacePath, bazelPath, cacheDir);
+            lastWorkspacePath = workspacePath;
+            lastBazelPath = bazelPath;
+            lastCacheDir = cacheDir;
         } finally {
             rwLock.writeLock().unlock();
         }
@@ -57,6 +70,9 @@ public final class BazelBridge {
                 nativeShutdown(handle);
                 handle = -1;
             }
+            lastWorkspacePath = null;
+            lastBazelPath = null;
+            lastCacheDir = null;
         } finally {
             rwLock.writeLock().unlock();
         }
