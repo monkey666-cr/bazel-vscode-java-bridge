@@ -42,6 +42,10 @@ Thumbs.db
 !.env.example
 
 # Bazel
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-*-project
 
 # Cache
 .redb/
@@ -56,3 +60,6 @@ SPEC-KIT-GUIDE.md
 !bazel-jdt-bridge/java-bridge/src/main/resources/native/**/*.dll
 
 .claude
+.omc
+
+.java-version
