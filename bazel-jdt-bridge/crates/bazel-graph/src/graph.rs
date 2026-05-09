@@ -496,14 +496,6 @@ impl DependencyGraph {
     }
 }
 
-/// Normalize a dep label relative to a package label.
-///
-/// Resolves relative deps to fully-qualified form:
-/// - `":target"` → `"//package:target"`
-/// - `"target"` (bare name) → `"//package:target"`
-/// - `"//already/qualified:target"` → unchanged
-/// - `"@external//pkg:target"` → unchanged
-///
 /// Extract the package label from a fully-qualified target label.
 /// E.g., `//foo/bar:baz` → `//foo/bar`, `//foo/bar` → `//foo/bar`.
 fn package_of(label: &str) -> &str {
@@ -513,6 +505,13 @@ fn package_of(label: &str) -> &str {
     }
 }
 
+/// Normalize a dep label relative to a package label.
+///
+/// Resolves relative deps to fully-qualified form:
+/// - `":target"` → `"//package:target"`
+/// - `"target"` (bare name) → `"//package:target"`
+/// - `"//already/qualified:target"` → unchanged
+/// - `"@external//pkg:target"` → unchanged
 pub fn normalize_dep_label(dep: &str, package_label: &str) -> String {
     if dep.starts_with("//") || dep.starts_with('@') {
         return normalize_label(dep);

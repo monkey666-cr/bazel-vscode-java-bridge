@@ -84,6 +84,9 @@ pub fn detect_bazel_major_version(bazel_path: &str) -> u32 {
     }
 }
 
+/// Strip `toolchains_aspects` lines for Bazel < 9 (attribute unsupported before Bazel 9).
+/// Safe to use naive line filtering because the content is embedded at compile time
+/// via `include_str!` — we control the exact format.
 fn adapt_bundled_bzl_for_version(content: &str, bazel_major: u32) -> String {
     if bazel_major >= 9 {
         return content.to_string();

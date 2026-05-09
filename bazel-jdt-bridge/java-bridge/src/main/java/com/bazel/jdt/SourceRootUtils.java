@@ -66,7 +66,12 @@ public final class SourceRootUtils {
             return null;
         }
 
-        String packageDecl = extractPackageDeclaration(javaFiles[0]);
+        java.util.Arrays.sort(javaFiles, java.util.Comparator.comparing(File::getName));
+        String packageDecl = "";
+        for (File jf : javaFiles) {
+            packageDecl = extractPackageDeclaration(jf);
+            if (!packageDecl.isEmpty()) break;
+        }
         if (packageDecl.isEmpty()) {
             return null;
         }

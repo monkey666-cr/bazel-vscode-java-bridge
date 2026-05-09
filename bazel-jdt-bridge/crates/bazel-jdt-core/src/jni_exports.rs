@@ -13,6 +13,8 @@ use jni::JNIEnv;
 static REGISTRY: OnceLock<Mutex<HashMap<u64, Box<BazelJdtState>>>> = OnceLock::new();
 static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
 
+const CONFIG_CHANGED_SENTINEL: &str = "__CONFIG_CHANGED__";
+
 fn registry() -> &'static Mutex<HashMap<u64, Box<BazelJdtState>>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -270,8 +272,8 @@ fn make_watcher_callback(registry_key: u64) -> Box<dyn Fn(Vec<std::path::PathBuf
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
-        if config_changed && !pending.contains(&"__CONFIG_CHANGED__".to_string()) {
-            pending.push("__CONFIG_CHANGED__".to_string());
+        if config_changed && !pending.contains(&CONFIG_CHANGED_SENTINEL.to_string()) {
+            pending.push(CONFIG_CHANGED_SENTINEL.to_string());
         }
 
         for package_label in &packages_to_add {

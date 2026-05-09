@@ -145,20 +145,6 @@ fn filter_build_file_events(result: notify_debouncer_full::DebounceEventResult) 
     paths
 }
 
-#[cfg(test)]
-fn is_bazel_output_dir(path: &Path) -> bool {
-    let name = match path.file_name().and_then(|n| n.to_str()) {
-        Some(n) => n,
-        None => return false,
-    };
-    if !name.starts_with("bazel-") {
-        return false;
-    }
-    path.symlink_metadata()
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false)
-}
-
 pub fn is_build_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -231,30 +217,4 @@ mod tests {
         assert!(!is_bazelproject_file(Path::new("")));
     }
 
-    #[test]
-    fn test_is_bazel_output_dir_with_symlinks() {
-        let tmp = std::env::temp_dir().join("watcher_test_bazel_output");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        let real_dir = tmp.join("real_output");
-        std::fs::create_dir_all(&real_dir).unwrap();
-
-        for name in &["bazel-bin", "bazel-out", "bazel-testlogs", "bazel-genfiles"] {
-            let link = tmp.join(name);
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&real_dir, &link).unwrap();
-            assert!(is_bazel_output_dir(&link), "{} should be detected as bazel output", name);
-        }
-
-        let regular_dir = tmp.join("bazel-something");
-        std::fs::create_dir_all(&regular_dir).unwrap();
-        assert!(!is_bazel_output_dir(&regular_dir), "non-symlink bazel- dir should not match");
-
-        let src_dir = tmp.join("src");
-        std::fs::create_dir_all(&src_dir).unwrap();
-        assert!(!is_bazel_output_dir(&src_dir), "regular dir should not match");
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
 }

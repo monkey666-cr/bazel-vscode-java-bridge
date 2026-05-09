@@ -22,6 +22,7 @@ import java.util.Set;
 
 public class BazelClasspathManager {
     private static final ILog LOG = Platform.getLog(BazelClasspathManager.class);
+    private static final String CONFIG_CHANGED_SENTINEL = "__CONFIG_CHANGED__";
 
     public static void setClasspathContainer(IProject project, String targetLabel) {
         try {
@@ -173,6 +174,9 @@ public class BazelClasspathManager {
     private static List<String> getTestSourcePatterns(IProject project) {
         try {
             org.eclipse.core.resources.IWorkspaceRoot wsRoot = project.getWorkspace().getRoot();
+            if (wsRoot.getLocation() == null) {
+                return Collections.emptyList();
+            }
             java.io.File workspaceRoot = wsRoot.getLocation().toFile();
             BazelProjectView projectView = BazelProjectView.parse(workspaceRoot);
             if (projectView != null && !projectView.getTestSourcePatterns().isEmpty()) {
@@ -188,6 +192,11 @@ public class BazelClasspathManager {
     private static void handleConfigChanged(IProject project, BazelBridge bridge) {
         try {
             org.eclipse.core.resources.IWorkspaceRoot wsRoot = project.getWorkspace().getRoot();
+            if (wsRoot.getLocation() == null) {
+                LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                    "Cannot handle config change: workspace location is null (remote workspace?)"));
+                return;
+            }
             java.io.File workspaceRoot = wsRoot.getLocation().toFile();
             BazelProjectView projectView = BazelProjectView.parse(workspaceRoot);
             if (projectView != null && !projectView.getDirectories().isEmpty()) {
@@ -219,7 +228,7 @@ public class BazelClasspathManager {
         String projectName = project.getName();
 
         for (String pending : pendingLabels) {
-            if ("__CONFIG_CHANGED__".equals(pending)) {
+            if (CONFIG_CHANGED_SENTINEL.equals(pending)) {
                 handleConfigChanged(project, bridge);
                 continue;
             }
