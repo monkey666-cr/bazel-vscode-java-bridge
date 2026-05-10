@@ -143,8 +143,6 @@ public final class BazelProjectCreator {
 
         javaProject.setRawClasspath(entries.toArray(new IClasspathEntry[0]), monitor);
         javaProject.setOutputLocation(new Path("/" + project.getName() + "/bin"), monitor);
-
-        project.refreshLocal(org.eclipse.core.resources.IResource.DEPTH_INFINITE, monitor);
     }
 
     private static void addJreContainerEntry(List<IClasspathEntry> entries) {
