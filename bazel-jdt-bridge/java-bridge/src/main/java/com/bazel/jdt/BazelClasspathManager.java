@@ -22,6 +22,7 @@ import java.util.Set;
 
 public class BazelClasspathManager {
     private static final ILog LOG = Platform.getLog(BazelClasspathManager.class);
+    private static final String CONFIG_CHANGED_SENTINEL = "__CONFIG_CHANGED__";
 
     public static void setClasspathContainer(IProject project, String targetLabel) {
         try {
@@ -38,6 +39,24 @@ public class BazelClasspathManager {
                 return;
             }
             String[] rawEntries = bridge.computeClasspath(targetLabel);
+
+            if (rawEntries == null || rawEntries.length == 0) {
+                try {
+                    IClasspathContainer existing = JavaCore.getClasspathContainer(
+                        BazelClasspathContainer.CONTAINER_PATH, JavaCore.create(project));
+                    if (existing != null && existing.getClasspathEntries().length > 0) {
+                        LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                            "Skipping empty classpath for '" + targetLabel
+                            + "' - project " + project.getName()
+                            + " already has " + existing.getClasspathEntries().length + " entries"));
+                        return;
+                    }
+                } catch (Exception ex) {
+                    LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                        "Could not check existing container: " + ex.getMessage()));
+                }
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.append("Classpath for '").append(targetLabel).append("' (").append(rawEntries == null ? "null" : rawEntries.length).append(" entries):");
             if (rawEntries != null) {
@@ -48,7 +67,7 @@ public class BazelClasspathManager {
             LOG.log(new Status(IStatus.INFO, "com.bazel.jdt", sb.toString()));
             BazelClasspathContainer container = new BazelClasspathContainer(
                 rawEntries, getTestSourcePatterns(project),
-                bridge.getDependencyResolutionMode());
+                bridge.getDependencyResolutionMode(), project.getName());
             TargetProjectMapping.storeCachedClasspath(project, targetLabel, rawEntries);
             JavaCore.setClasspathContainer(
                 BazelClasspathContainer.CONTAINER_PATH,
@@ -155,6 +174,9 @@ public class BazelClasspathManager {
     private static List<String> getTestSourcePatterns(IProject project) {
         try {
             org.eclipse.core.resources.IWorkspaceRoot wsRoot = project.getWorkspace().getRoot();
+            if (wsRoot.getLocation() == null) {
+                return Collections.emptyList();
+            }
             java.io.File workspaceRoot = wsRoot.getLocation().toFile();
             BazelProjectView projectView = BazelProjectView.parse(workspaceRoot);
             if (projectView != null && !projectView.getTestSourcePatterns().isEmpty()) {
@@ -165,6 +187,28 @@ public class BazelClasspathManager {
                 "Failed to get test source patterns", e));
         }
         return Collections.emptyList();
+    }
+
+    private static void handleConfigChanged(IProject project, BazelBridge bridge) {
+        try {
+            org.eclipse.core.resources.IWorkspaceRoot wsRoot = project.getWorkspace().getRoot();
+            if (wsRoot.getLocation() == null) {
+                LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                    "Cannot handle config change: workspace location is null (remote workspace?)"));
+                return;
+            }
+            java.io.File workspaceRoot = wsRoot.getLocation().toFile();
+            BazelProjectView projectView = BazelProjectView.parse(workspaceRoot);
+            if (projectView != null && !projectView.getDirectories().isEmpty()) {
+                String[] watchDirs = projectView.getDirectories().toArray(new String[0]);
+                bridge.updateWatchPaths(watchDirs);
+                LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                    ".bazelproject changed, watcher updated to " + watchDirs.length + " directories"));
+            }
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                "Failed to update watch paths after .bazelproject change: " + e.getMessage(), e));
+        }
     }
 
     private static List<String> extractTargetLabels(IProject project, List<String> changedFiles) {
@@ -184,6 +228,10 @@ public class BazelClasspathManager {
         String projectName = project.getName();
 
         for (String pending : pendingLabels) {
+            if (CONFIG_CHANGED_SENTINEL.equals(pending)) {
+                handleConfigChanged(project, bridge);
+                continue;
+            }
             String pendingPackage = pending.startsWith("//") ? pending.substring(2) : pending;
             if (projectName.equals(pendingPackage)) {
                 List<String> stored = TargetProjectMapping.readTargets(project);
