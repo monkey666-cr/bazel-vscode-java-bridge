@@ -253,19 +253,12 @@ fn make_watcher_callback(
 
             let path_str = path.to_string_lossy();
             if let Ok(current_hash) = crate::change_detector::compute_file_hash(path) {
-                let needs_update = match state.cache.get_build_hash(&path_str) {
-                    Ok(Some(cached_hash)) => cached_hash != current_hash,
-                    Ok(None) => true,
-                    Err(_) => true,
-                };
-                if needs_update {
-                    let package_label = crate::change_detector::compute_build_file_package_label(
-                        path,
-                        &state.workspace_root,
-                    );
-                    packages_to_add.push(package_label);
-                    changes_to_record.push((path_str.into_owned(), current_hash));
-                }
+                let package_label = crate::change_detector::compute_build_file_package_label(
+                    path,
+                    &state.workspace_root,
+                );
+                packages_to_add.push(package_label);
+                changes_to_record.push((path_str.into_owned(), current_hash));
             }
         }
 
