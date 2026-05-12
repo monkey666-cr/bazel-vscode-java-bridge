@@ -1,8 +1,8 @@
 use notify::RecursiveMode;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Debug, thiserror::Error)]
@@ -70,6 +70,8 @@ impl BuildFileWatcher {
 
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
+        let hash_cache: Arc<Mutex<HashMap<PathBuf, String>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         let handle = std::thread::Builder::new()
             .name("bazel-jdt-build-watcher".to_string())
@@ -77,13 +79,24 @@ impl BuildFileWatcher {
                 while running_clone.load(Ordering::Acquire) {
                     match rx.recv_timeout(Duration::from_millis(200)) {
                         Ok(result) => {
-                            let paths = filter_build_file_events(result);
+                            let raw_event_count = result
+                                .as_ref()
+                                .map(|e| e.len())
+                                .unwrap_or(0);
+                            let mut cache = hash_cache.lock().unwrap_or_else(|e| e.into_inner());
+                            let paths = filter_build_file_events(result, &mut cache);
+                            drop(cache);
                             if !paths.is_empty() {
                                 log::info!(
                                     "Build files changed: {:?}",
                                     paths.iter().map(|p| p.display()).collect::<Vec<_>>()
                                 );
                                 callback(paths);
+                            } else if raw_event_count > 0 {
+                                log::debug!(
+                                    "Suppressed {} watcher events (content unchanged)",
+                                    raw_event_count
+                                );
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -115,7 +128,10 @@ impl BuildFileWatcher {
     }
 }
 
-fn filter_build_file_events(result: notify_debouncer_full::DebounceEventResult) -> Vec<PathBuf> {
+fn filter_build_file_events(
+    result: notify_debouncer_full::DebounceEventResult,
+    hash_cache: &mut HashMap<PathBuf, String>,
+) -> Vec<PathBuf> {
     let events = match result {
         Ok(events) => events,
         Err(errors) => {
@@ -132,8 +148,36 @@ fn filter_build_file_events(result: notify_debouncer_full::DebounceEventResult) 
     for event in events {
         for path in &event.event.paths {
             if is_watched_file(path) && seen.insert(path.clone()) {
-                log::debug!("Detected change in watched file: {}", path.display());
-                paths.push(path.clone());
+                match crate::change_detector::compute_file_hash(path) {
+                    Ok(current_hash) => {
+                        let is_new_or_changed = match hash_cache.get(path) {
+                            Some(cached_hash) => cached_hash != &current_hash,
+                            None => true,
+                        };
+                        if is_new_or_changed {
+                            log::debug!(
+                                "Detected genuine change in watched file: {}",
+                                path.display()
+                            );
+                            hash_cache.insert(path.clone(), current_hash);
+                            paths.push(path.clone());
+                        } else {
+                            log::debug!(
+                                "Suppressed unchanged file event: {}",
+                                path.display()
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        // File deleted or inaccessible — include event and remove cached entry
+                        log::debug!(
+                            "File deleted or inaccessible, passing through: {}",
+                            path.display()
+                        );
+                        hash_cache.remove(path);
+                        paths.push(path.clone());
+                    }
+                }
             }
         }
     }
@@ -181,6 +225,19 @@ impl Drop for BuildFileWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::EventKind;
+    use std::fs;
+
+    fn make_debounced_event(path: PathBuf) -> notify_debouncer_full::DebouncedEvent {
+        notify_debouncer_full::DebouncedEvent {
+            event: notify::Event {
+                kind: EventKind::Modify(notify::event::ModifyKind::Any),
+                paths: vec![path],
+                attrs: Default::default(),
+            },
+            time: std::time::Instant::now(),
+        }
+    }
 
     #[test]
     fn test_is_watched_file() {
@@ -211,5 +268,88 @@ mod tests {
         assert!(!is_bazelproject_file(Path::new("BUILD")));
         assert!(!is_bazelproject_file(Path::new("WORKSPACE")));
         assert!(!is_bazelproject_file(Path::new("")));
+    }
+
+    #[test]
+    fn test_filter_suppresses_unchanged_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let build_file = dir.path().join("BUILD");
+        fs::write(&build_file, "java_library(name='foo')").unwrap();
+
+        let events = Ok(vec![make_debounced_event(build_file.clone())]);
+        let mut cache = HashMap::new();
+
+        let first = filter_build_file_events(events, &mut cache);
+        assert_eq!(first.len(), 1);
+        assert!(cache.contains_key(&build_file));
+
+        let second = filter_build_file_events(
+            Ok(vec![make_debounced_event(build_file.clone())]),
+            &mut cache,
+        );
+        assert!(second.is_empty(), "identical content should be suppressed");
+    }
+
+    #[test]
+    fn test_filter_passes_through_deleted_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let build_file = dir.path().join("BUILD.bazel");
+        fs::write(&build_file, "java_library(name='bar')").unwrap();
+
+        let mut cache = HashMap::new();
+
+        let first = filter_build_file_events(
+            Ok(vec![make_debounced_event(build_file.clone())]),
+            &mut cache,
+        );
+        assert_eq!(first.len(), 1);
+
+        fs::remove_file(&build_file).unwrap();
+
+        let second = filter_build_file_events(
+            Ok(vec![make_debounced_event(build_file.clone())]),
+            &mut cache,
+        );
+        assert_eq!(second.len(), 1, "deleted file should pass through");
+        assert!(!cache.contains_key(&build_file), "cache entry should be removed");
+    }
+
+    #[test]
+    fn test_filter_mixed_batch_only_returns_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let unchanged = dir.path().join("BUILD");
+        let changed = dir.path().join("WORKSPACE");
+        let new_file = dir.path().join("WORKSPACE.bazel");
+
+        fs::write(&unchanged, "cc_library(name='unchanged')").unwrap();
+        fs::write(&changed, "workspace(name='old')").unwrap();
+
+        let mut cache = HashMap::new();
+
+        let _ = filter_build_file_events(
+            Ok(vec![make_debounced_event(unchanged.clone())]),
+            &mut cache,
+        );
+        let _ = filter_build_file_events(
+            Ok(vec![make_debounced_event(changed.clone())]),
+            &mut cache,
+        );
+
+        fs::write(&changed, "workspace(name='new')").unwrap();
+        fs::write(&new_file, "workspace(name='fresh')").unwrap();
+
+        let result = filter_build_file_events(
+            Ok(vec![
+                make_debounced_event(unchanged.clone()),
+                make_debounced_event(changed.clone()),
+                make_debounced_event(new_file.clone()),
+            ]),
+            &mut cache,
+        );
+
+        assert_eq!(result.len(), 2, "only changed and new files should appear");
+        assert!(result.contains(&changed));
+        assert!(result.contains(&new_file));
+        assert!(!result.contains(&unchanged));
     }
 }
