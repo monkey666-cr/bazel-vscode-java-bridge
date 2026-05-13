@@ -157,7 +157,9 @@ impl BazelInvoker {
         let stderr = String::from_utf8(output.stderr)?;
 
         if !output.status.success() {
-            log::warn!("Aspect build completed with errors (--keep_going); partial results will be used");
+            log::warn!(
+                "Aspect build completed with errors (--keep_going); partial results will be used"
+            );
         }
 
         Ok(stderr)
@@ -177,15 +179,15 @@ impl BazelInvoker {
             self.build_with_aspects_sync(targets, &self.aspect_label, build_flags)?;
 
         log::info!("Discovering aspect output files...");
-        let stderr_files =
-            crate::output::parse_aspect_output_locations(&aspect_output);
-        let fs_files =
-            crate::output::discover_aspect_outputs(&self.workspace_root);
+        let stderr_files = crate::output::parse_aspect_output_locations(&aspect_output);
+        let fs_files = crate::output::discover_aspect_outputs(&self.workspace_root);
         let (info_files, stderr_count, fs_new) =
             crate::output::merge_aspect_outputs(stderr_files, fs_files);
         log::info!(
             "Aspect discovery: {} from stderr + {} new from filesystem = {} total",
-            stderr_count, fs_new, info_files.len()
+            stderr_count,
+            fs_new,
+            info_files.len()
         );
 
         let total = info_files.len();
@@ -214,8 +216,11 @@ impl BazelInvoker {
                 log::info!("Parsed {}/{} aspect files...", i + 1, total);
             }
         }
-        log::info!("All {} aspect files parsed ({} read failures skipped)",
-            results.len(), total - results.len());
+        log::info!(
+            "All {} aspect files parsed ({} read failures skipped)",
+            results.len(),
+            total - results.len()
+        );
 
         Ok(results)
     }
@@ -245,7 +250,9 @@ impl BazelInvoker {
         let stderr = String::from_utf8(output.stderr)?;
 
         if !output.status.success() {
-            log::warn!("Aspect build completed with errors (--keep_going); partial results will be used");
+            log::warn!(
+                "Aspect build completed with errors (--keep_going); partial results will be used"
+            );
         }
 
         Ok(stderr)
@@ -280,16 +287,17 @@ impl BazelInvoker {
 
         let stderr_files = crate::output::parse_aspect_output_locations(&aspect_output);
         let ws = self.workspace_root.clone();
-        let fs_files = tokio::task::spawn_blocking(move || {
-            crate::output::discover_aspect_outputs(&ws)
-        })
-        .await
-        .unwrap_or_default();
+        let fs_files =
+            tokio::task::spawn_blocking(move || crate::output::discover_aspect_outputs(&ws))
+                .await
+                .unwrap_or_default();
         let (info_files, stderr_count, fs_new) =
             crate::output::merge_aspect_outputs(stderr_files, fs_files);
         log::info!(
             "Aspect discovery: {} from stderr + {} new from filesystem = {} total",
-            stderr_count, fs_new, info_files.len()
+            stderr_count,
+            fs_new,
+            info_files.len()
         );
 
         let mut results = Vec::new();

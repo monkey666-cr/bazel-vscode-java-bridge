@@ -110,8 +110,7 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeInitialize(
     // Initialize stderr logger (controlled via RUST_LOG env var, default=warn).
     // try_init is idempotent — safe if called multiple times.
     let _ = env_logger::Builder::from_env(
-        env_logger::Env::default()
-            .default_filter_or("warn,bazel_jdt_core=info,bazel_query=info"),
+        env_logger::Env::default().default_filter_or("warn,bazel_jdt_core=info,bazel_query=info"),
     )
     .try_init();
 
@@ -884,4 +883,3 @@ fn run_full_resolution(
     )
     .map_err(|e| format!("Graph computation failed: {}", e))
 }
-
