@@ -240,9 +240,7 @@ impl DependencyGraph {
                         .jars
                         .iter()
                         .all(|j| !j.jar.is_source && !j.jar.is_external);
-                if jars.is_empty()
-                    || (jars_all_derived_internal && !compile_jars.is_empty())
-                {
+                if jars.is_empty() || (jars_all_derived_internal && !compile_jars.is_empty()) {
                     jars = compile_jars;
                 }
 
@@ -533,7 +531,10 @@ impl DependencyGraph {
 
     /// Get deduplicated package paths for all workspace-internal transitive dependencies.
     /// Returns package paths (e.g., "utils", "service") not full labels.
-    pub fn transitive_dependency_packages(&self, target_label: &str) -> Result<Vec<String>, GraphError> {
+    pub fn transitive_dependency_packages(
+        &self,
+        target_label: &str,
+    ) -> Result<Vec<String>, GraphError> {
         let deps = self.transitive_deps(target_label)?;
         let mut packages: Vec<String> = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -552,7 +553,10 @@ impl DependencyGraph {
     /// Get workspace-internal transitive dependency packages with their actual target labels.
     /// Returns entries formatted as "package_path|//pkg:target1,//pkg:target2".
     /// Each entry represents one unique package with all its dependency targets.
-    pub fn transitive_dependency_targets(&self, target_labels: &[&str]) -> Result<Vec<String>, GraphError> {
+    pub fn transitive_dependency_targets(
+        &self,
+        target_labels: &[&str],
+    ) -> Result<Vec<String>, GraphError> {
         use std::collections::HashMap;
         let mut pkg_targets: HashMap<String, Vec<String>> = HashMap::new();
         for label in target_labels {
@@ -1664,7 +1668,11 @@ mod tests {
 
         let packages = graph.transitive_dependency_packages("//app:app").unwrap();
         let common_count = packages.iter().filter(|p| **p == "common").count();
-        assert_eq!(common_count, 1, "common should appear exactly once, got: {:?}", packages);
+        assert_eq!(
+            common_count, 1,
+            "common should appear exactly once, got: {:?}",
+            packages
+        );
         assert!(packages.contains(&"common".to_string()));
         assert!(packages.contains(&"utils".to_string()));
         assert!(packages.contains(&"service".to_string()));

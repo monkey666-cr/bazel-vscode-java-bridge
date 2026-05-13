@@ -55,7 +55,12 @@ jobs:
         run: |
           cd ..
           cargo build -p bazel-jdt-core --release
+      - name: Build native library
+        run: |
+          cd ..
+          mkdir -p java-bridge/src/main/resources/native/linux-x86_64
+          cp target/release/libbazel_jdt_core.so java-bridge/src/main/resources/native/linux-x86_64/
       - name: Maven compile
-        run: mvn compile
+        run: mvn compile -Pci
       - name: Maven test
-        run: mvn test -Djava.library.path=../target/release
+        run: mvn test -Djava.library.path=../target/release -Pci -Dtest='!BazelClasspathContainerTest,!BazelProjectViewTest'

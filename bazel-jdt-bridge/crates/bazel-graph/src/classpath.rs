@@ -151,8 +151,7 @@ impl ComputedClasspath {
                         if existing.source_attachment_path.is_none()
                             && entry.source_attachment_path.is_some()
                         {
-                            existing.source_attachment_path =
-                                entry.source_attachment_path.clone();
+                            existing.source_attachment_path = entry.source_attachment_path.clone();
                         }
                         if existing.is_test && !entry.is_test {
                             existing.is_test = false;
@@ -1121,7 +1120,11 @@ mod tests {
     fn test_merge_overlapping_deps() {
         let mut graph = DependencyGraph::new();
         let results = vec![
-            make_target("//pkg:A", vec!["@maven//:guava", "@maven//:mongo"], vec!["/a.jar"]),
+            make_target(
+                "//pkg:A",
+                vec!["@maven//:guava", "@maven//:mongo"],
+                vec!["/a.jar"],
+            ),
             make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
             make_target("@maven//:mongo", vec![], vec!["/mongo.jar"]),
             make_target("//pkg:B", vec!["@maven//:guava"], vec!["/b.jar"]),
@@ -1192,12 +1195,8 @@ mod tests {
         ];
         graph.populate_from_aspects(&results, Path::new("/workspace"));
 
-        let cp = ComputedClasspath::compute_for_targets(
-            &graph,
-            &["//pkg:A_test", "//pkg:B"],
-            None,
-        )
-        .unwrap();
+        let cp = ComputedClasspath::compute_for_targets(&graph, &["//pkg:A_test", "//pkg:B"], None)
+            .unwrap();
 
         let helpers_entry = cp
             .entries
@@ -1249,15 +1248,10 @@ mod tests {
         ];
         graph.populate_from_aspects(&results, Path::new("/workspace"));
 
-        let single = ComputedClasspath::compute_for(
-            &graph,
-            "//pkg:A",
-            TargetKind::JavaLibrary,
-            None,
-        )
-        .unwrap();
-        let merged =
-            ComputedClasspath::compute_for_targets(&graph, &["//pkg:A"], None).unwrap();
+        let single =
+            ComputedClasspath::compute_for(&graph, "//pkg:A", TargetKind::JavaLibrary, None)
+                .unwrap();
+        let merged = ComputedClasspath::compute_for_targets(&graph, &["//pkg:A"], None).unwrap();
 
         assert_eq!(single.entries.len(), merged.entries.len());
         for (s, m) in single.entries.iter().zip(merged.entries.iter()) {
@@ -1543,11 +1537,7 @@ mod tests {
 
         let mut graph = DependencyGraph::new();
         let results = vec![
-            make_target_with_jar_path(
-                "//app:app",
-                vec!["//utils:string_utils"],
-                "/app.jar",
-            ),
+            make_target_with_jar_path("//app:app", vec!["//utils:string_utils"], "/app.jar"),
             make_target_with_source_jar(
                 "//utils:string_utils",
                 vec![],
@@ -1557,13 +1547,9 @@ mod tests {
         ];
         graph.populate_from_aspects(&results, Path::new(tmp.path()));
 
-        let cp = ComputedClasspath::compute_for(
-            &graph,
-            "//app:app",
-            TargetKind::JavaLibrary,
-            Some(&ws),
-        )
-        .unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "//app:app", TargetKind::JavaLibrary, Some(&ws))
+                .unwrap();
 
         let entry = cp
             .entries

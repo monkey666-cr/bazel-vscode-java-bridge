@@ -70,8 +70,7 @@ impl BuildFileWatcher {
 
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
-        let hash_cache: Arc<Mutex<HashMap<PathBuf, String>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let hash_cache: Arc<Mutex<HashMap<PathBuf, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
         let handle = std::thread::Builder::new()
             .name("bazel-jdt-build-watcher".to_string())
@@ -79,10 +78,7 @@ impl BuildFileWatcher {
                 while running_clone.load(Ordering::Acquire) {
                     match rx.recv_timeout(Duration::from_millis(200)) {
                         Ok(result) => {
-                            let raw_event_count = result
-                                .as_ref()
-                                .map(|e| e.len())
-                                .unwrap_or(0);
+                            let raw_event_count = result.as_ref().map(|e| e.len()).unwrap_or(0);
                             let mut cache = hash_cache.lock().unwrap_or_else(|e| e.into_inner());
                             let paths = filter_build_file_events(result, &mut cache);
                             drop(cache);
@@ -162,10 +158,7 @@ fn filter_build_file_events(
                             hash_cache.insert(path.clone(), current_hash);
                             paths.push(path.clone());
                         } else {
-                            log::debug!(
-                                "Suppressed unchanged file event: {}",
-                                path.display()
-                            );
+                            log::debug!("Suppressed unchanged file event: {}", path.display());
                         }
                     }
                     Err(_) => {
@@ -311,7 +304,10 @@ mod tests {
             &mut cache,
         );
         assert_eq!(second.len(), 1, "deleted file should pass through");
-        assert!(!cache.contains_key(&build_file), "cache entry should be removed");
+        assert!(
+            !cache.contains_key(&build_file),
+            "cache entry should be removed"
+        );
     }
 
     #[test]
@@ -330,10 +326,8 @@ mod tests {
             Ok(vec![make_debounced_event(unchanged.clone())]),
             &mut cache,
         );
-        let _ = filter_build_file_events(
-            Ok(vec![make_debounced_event(changed.clone())]),
-            &mut cache,
-        );
+        let _ =
+            filter_build_file_events(Ok(vec![make_debounced_event(changed.clone())]), &mut cache);
 
         fs::write(&changed, "workspace(name='new')").unwrap();
         fs::write(&new_file, "workspace(name='fresh')").unwrap();
