@@ -2,7 +2,7 @@
     "name": "bazel-jdt-bridge",
     "displayName": "Bazel Java Support",
     "description": "Bazel Java dependency resolver for Eclipse JDT.LS",
-    "version": "0.1.0",
+    "version": "0.1.0-pre.2",
     "publisher": "bazel-jdt",
     "engines": {
         "vscode": "^1.85.0"
@@ -107,7 +107,10 @@
                 "bazel-jdt.dependencyResolution": {
                     "type": "string",
                     "default": "transitive",
-                    "enum": ["transitive", "optional"],
+                    "enum": [
+                        "transitive",
+                        "optional"
+                    ],
                     "enumDescriptions": [
                         "Automatically import all transitive workspace-internal dependencies as Eclipse projects (recommended)",
                         "Mark inter-project dependencies as optional — suppresses errors when dependent projects are absent"
@@ -117,7 +120,10 @@
                 "bazel-jdt.syncMode": {
                     "type": "string",
                     "default": "fast",
-                    "enum": ["fast", "full"],
+                    "enum": [
+                        "fast",
+                        "full"
+                    ],
                     "enumDescriptions": [
                         "Use header JARs (hjars) for fast sync — best for quick iteration",
                         "Build full JARs for complete IDE experience — slower initial sync but no missing imports"
@@ -127,7 +133,11 @@
                 "bazel-jdt.dependencySourceLoading": {
                     "type": "string",
                     "default": "full-project",
-                    "enum": ["full-project", "on-demand", "source-view"],
+                    "enum": [
+                        "full-project",
+                        "on-demand",
+                        "source-view"
+                    ],
                     "enumDescriptions": [
                         "Automatically create Eclipse Projects for all workspace-internal dependencies (recommended, full IDE features)",
                         "Only create Projects for .bazelproject directories. Show notification to create projects on demand when navigating to dependency source files",
