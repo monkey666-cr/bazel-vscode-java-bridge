@@ -98,7 +98,10 @@ impl BazelCache {
         match Database::create(&db_path) {
             Ok(db) => return Ok(Self { db }),
             Err(ref e) if is_lock_error(e) => {
-                log::warn!("Cache database locked, retrying in 500ms: {}", db_path.display());
+                log::warn!(
+                    "Cache database locked, retrying in 500ms: {}",
+                    db_path.display()
+                );
             }
             Err(e) => return Err(CacheError::DatabaseError(e)),
         }

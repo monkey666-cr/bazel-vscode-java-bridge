@@ -165,11 +165,8 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeInitialize(
         }
     }
 
-    let state = match BazelJdtState::new(
-        std::path::PathBuf::from(&workspace),
-        &bazel,
-        &cache_path,
-    ) {
+    let state = match BazelJdtState::new(std::path::PathBuf::from(&workspace), &bazel, &cache_path)
+    {
         Ok(s) => s,
         Err(e) => {
             let _ = env.throw_new(
