@@ -3,6 +3,8 @@ package com.bazel.jdt;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.ILog;
@@ -19,6 +21,7 @@ import org.eclipse.jdt.core.JavaCore;
 
 public class BazelClasspathContainer implements IClasspathContainer {
     private static final ILog LOG = Platform.getLog(BazelClasspathContainer.class);
+    private static final Set<String> WARNED_MISSING_PATHS = ConcurrentHashMap.newKeySet();
     public static final IPath CONTAINER_PATH = Path.fromPortableString("com.bazel.jdt.BAZEL_CONTAINER");
     private static final String DESCRIPTION = "Bazel Dependencies";
 
@@ -73,14 +76,18 @@ public class BazelClasspathContainer implements IClasspathContainer {
             case "LIB":
                 IPath jarPath = Path.fromPortableString(path);
                 if (!jarPath.toFile().exists()) {
-                    LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
-                        "Skipping non-existent JAR: " + path));
+                    if (WARNED_MISSING_PATHS.add(path)) {
+                        LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                            "Skipping non-existent JAR: " + path));
+                    }
                     return null;
                 }
                 IPath srcPath = sourcePath != null ? Path.fromPortableString(sourcePath) : null;
                 if (srcPath != null && !srcPath.toFile().exists()) {
-                    LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
-                        "Source attachment path does not exist, ignoring: " + sourcePath));
+                    if (WARNED_MISSING_PATHS.add(sourcePath)) {
+                        LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                            "Source attachment path does not exist, ignoring: " + sourcePath));
+                    }
                     srcPath = null;
                 }
                 IAccessRule[] accessRules = parseAccessRules(accessRulesStr);
@@ -167,6 +174,10 @@ public class BazelClasspathContainer implements IClasspathContainer {
 
     private static String extractPackageName(String targetLabel) {
         return LabelUtils.extractPackageName(targetLabel);
+    }
+
+    static void resetWarnings() {
+        WARNED_MISSING_PATHS.clear();
     }
 
     @Override

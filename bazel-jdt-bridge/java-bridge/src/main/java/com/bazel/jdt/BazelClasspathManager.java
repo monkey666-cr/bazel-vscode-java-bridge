@@ -115,6 +115,7 @@ public class BazelClasspathManager {
      * Called by BazelCommandHandler for import/sync commands.
      */
     public static void refreshClasspath() {
+        BazelClasspathContainer.resetWarnings();
         try {
             org.eclipse.core.resources.IWorkspace workspace =
                 org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
