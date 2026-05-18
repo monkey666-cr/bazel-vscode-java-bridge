@@ -42,33 +42,31 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
 
     private void doInitialize(IJavaProject project) throws CoreException {
         BazelBridge bridge = BazelBridge.getInstance();
-        if (!bridge.isInitialized()) {
-            recoverFromCache(project, bridge);
+        if (tryRecoverFromCache(project, bridge)) {
             return;
         }
-        List<String> targetLabels = TargetProjectMapping.readTargets(project.getProject());
-        if (targetLabels.isEmpty()) {
-            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                "No persisted target labels for project '" + project.getProject().getName()
-                + "' - setting empty container (importer will configure)"));
-            JavaCore.setClasspathContainer(
-                BazelClasspathContainer.CONTAINER_PATH,
-                new IJavaProject[]{project},
-                new IClasspathContainer[]{BazelClasspathContainer.EMPTY},
-                null
-            );
-            return;
-        } else {
-            BazelClasspathManager.setMergedClasspathContainer(project.getProject());
+        if (bridge.isInitialized()) {
+            List<String> targetLabels = TargetProjectMapping.readTargets(project.getProject());
+            if (!targetLabels.isEmpty()) {
+                BazelClasspathManager.setMergedClasspathContainer(project.getProject());
+                return;
+            }
         }
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "No persisted target labels for project '" + project.getProject().getName()
+            + "' - setting empty container (importer will configure)"));
+        JavaCore.setClasspathContainer(
+            BazelClasspathContainer.CONTAINER_PATH,
+            new IJavaProject[]{project},
+            new IClasspathContainer[]{BazelClasspathContainer.EMPTY},
+            null
+        );
     }
 
-    private void recoverFromCache(IJavaProject project, BazelBridge bridge) {
+    private boolean tryRecoverFromCache(IJavaProject project, BazelBridge bridge) {
         List<String> targetLabels = TargetProjectMapping.readTargets(project.getProject());
         if (targetLabels.isEmpty()) {
-            LOG.info("No persisted targets for " + project.getProject().getName()
-                + " — skipping container initialization until import runs");
-            return;
+            return false;
         }
         java.util.ArrayList<String> allEntries = new java.util.ArrayList<>();
         for (String label : targetLabels) {
@@ -78,9 +76,7 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
             }
         }
         if (allEntries.isEmpty()) {
-            LOG.info("No cached classpath for " + project.getProject().getName()
-                + " — skipping until import provides entries");
-            return;
+            return false;
         }
         try {
             BazelClasspathContainer container = new BazelClasspathContainer(
@@ -89,14 +85,8 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
                 project.getProject().getName());
             if (container.getClasspathEntries().length == 0) {
                 LOG.info("All cached classpath entries for " + project.getProject().getName()
-                    + " reference stale artifacts — setting empty container");
-                JavaCore.setClasspathContainer(
-                    BazelClasspathContainer.CONTAINER_PATH,
-                    new IJavaProject[]{project},
-                    new IClasspathContainer[]{BazelClasspathContainer.EMPTY},
-                    null
-                );
-                return;
+                    + " reference stale artifacts — skipping cache recovery");
+                return false;
             }
             JavaCore.setClasspathContainer(
                 BazelClasspathContainer.CONTAINER_PATH,
@@ -104,9 +94,13 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
                 new IClasspathContainer[]{container},
                 null
             );
+            LOG.info("Recovered classpath from file cache for " + project.getProject().getName()
+                + " (" + container.getClasspathEntries().length + " entries)");
+            return true;
         } catch (Exception e) {
             LOG.warn("Failed to apply cached classpath for " + project.getProject().getName()
                 + ": " + e.getMessage());
+            return false;
         }
     }
 

@@ -36,6 +36,10 @@ public class BazelProjectImporter extends AbstractProjectImporter {
             return;
         }
 
+        if (tryFastReload(monitor)) {
+            return;
+        }
+
         String workspacePath = rootFolder.getAbsolutePath();
         String cacheDir = BazelCommandHandler.DEFAULT_CACHE_DIR;
 
@@ -167,6 +171,7 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
                         if (firstProject && project != null) {
                             TargetProjectMapping.storeWorkspaceConfig(project, workspacePath, bazelPath, cacheDir);
+                            TargetProjectMapping.storeWorkspaceConfigFile(workspacePath, bazelPath, cacheDir);
                             firstProject = false;
                         }
                     } catch (Exception e) {
@@ -220,6 +225,152 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         // Phase 2: Resolve classpaths (indexer is ready, reconciliation will find JDK types)
         BazelClasspathManager.refreshClasspath();
 
+    }
+
+    private boolean tryFastReload(IProgressMonitor monitor) throws CoreException {
+        String[] config = TargetProjectMapping.readWorkspaceConfigFile();
+        if (config == null) {
+            return false;
+        }
+        java.util.List<String[]> index = TargetProjectMapping.readProjectIndex();
+        if (index.isEmpty()) {
+            return false;
+        }
+
+        String workspacePath = config[0];
+        String bazelPath = config[1];
+        String cacheDir = config[2];
+
+        if (rootFolder != null) {
+            BazelProjectView projectView = BazelProjectView.parse(rootFolder);
+            if (projectView != null && !projectView.getBazelBinary().isEmpty()) {
+                bazelPath = projectView.getBazelBinary();
+            }
+        }
+
+        long startTime = System.currentTimeMillis();
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "Fast reload: found " + index.size() + " cached projects, skipping Bazel discovery"));
+
+        BazelBridge bridge = BazelBridge.getInstance();
+        bridge.initialize(workspacePath, bazelPath, cacheDir);
+
+        if (rootFolder != null) {
+            BazelProjectView projectView = BazelProjectView.parse(rootFolder);
+            if (projectView != null && !projectView.getDirectories().isEmpty()) {
+                String[] watchDirs = projectView.getDirectories().toArray(new String[0]);
+                bridge.updateWatchPaths(watchDirs);
+            }
+        }
+
+        final String wsPath = workspacePath;
+        final String bzPath = bazelPath;
+        final String cDir = cacheDir;
+        ResourcesPlugin.getWorkspace().run(new IWorkspaceRunnable() {
+            @Override
+            public void run(IProgressMonitor pm) throws CoreException {
+                boolean firstProject = true;
+                for (String[] entry : index) {
+                    String projectName = entry[0];
+                    String targetLabel = entry[1];
+                    String packagePath = entry[2];
+                    try {
+                        IProject project = BazelProjectCreator.createProjectForPackage(
+                            wsPath, packagePath, targetLabel, pm, true);
+                        if (firstProject && project != null) {
+                            TargetProjectMapping.storeWorkspaceConfig(project, wsPath, bzPath, cDir);
+                            firstProject = false;
+                        }
+                    } catch (Exception e) {
+                        LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
+                            "Fast reload: failed to recreate project " + projectName, e));
+                    }
+                }
+            }
+        }, monitor);
+
+        JobHelpers.waitUntilIndexesReady();
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "Fast reload complete: " + index.size() + " projects restored in " + elapsed + "ms. "
+            + "Scheduling background refresh for fresh data."));
+
+        scheduleBackgroundRefresh();
+        return true;
+    }
+
+    private void scheduleBackgroundRefresh() {
+        org.eclipse.core.runtime.jobs.Job job = new org.eclipse.core.runtime.jobs.Job("Bazel: Background sync") {
+            @Override
+            protected IStatus run(IProgressMonitor pm) {
+                try {
+                    BazelBridge bridge = BazelBridge.getInstance();
+                    if (!bridge.isInitialized()) {
+                        return Status.OK_STATUS;
+                    }
+
+                    String[] scopePatterns = null;
+                    String[] buildFlags = null;
+                    if (rootFolder != null) {
+                        BazelProjectView projectView = BazelProjectView.parse(rootFolder);
+                        if (projectView != null && projectView.hasScope()) {
+                            scopePatterns = projectView.getScopePatterns().toArray(new String[0]);
+                        }
+                        if (projectView != null && !projectView.getBuildFlags().isEmpty()) {
+                            buildFlags = projectView.getBuildFlags().toArray(new String[0]);
+                        }
+                    }
+
+                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                        "Background sync: starting full pipeline"));
+                    long totalStart = System.currentTimeMillis();
+
+                    String[] targets = bridge.queryTargets(scopePatterns);
+                    if (targets == null || targets.length == 0) {
+                        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                            "Background sync: no targets found"));
+                        return Status.OK_STATUS;
+                    }
+
+                    bridge.populateGraph();
+                    String[] finalTargets = bridge.runAspectBuild(targets, buildFlags);
+
+                    if (finalTargets != null && finalTargets.length > 0) {
+                        String wsPath = rootFolder.getAbsolutePath();
+                        IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
+                        for (String targetLabel : finalTargets) {
+                            String packagePath = extractPackageName(targetLabel);
+                            String projectName = LabelUtils.toProjectName(packagePath);
+                            if (!workspaceRoot.getProject(projectName).exists()) {
+                                try {
+                                    BazelProjectCreator.createProjectForPackage(
+                                        wsPath, packagePath, targetLabel, pm, true);
+                                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                                        "Background sync: created new project " + projectName));
+                                } catch (Exception e) {
+                                    LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                                        "Background sync: failed to create project " + projectName, e));
+                                }
+                            }
+                        }
+                    }
+
+                    BazelClasspathManager.refreshClasspath();
+
+                    long totalElapsed = (System.currentTimeMillis() - totalStart) / 1000;
+                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                        "Background sync complete in " + totalElapsed + "s"));
+                } catch (Exception e) {
+                    LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
+                        "Background sync failed: " + e.getMessage(), e));
+                }
+                return Status.OK_STATUS;
+            }
+        };
+        job.setSystem(true);
+        job.setPriority(org.eclipse.core.runtime.jobs.Job.BUILD);
+        job.schedule();
     }
 
     @Override
