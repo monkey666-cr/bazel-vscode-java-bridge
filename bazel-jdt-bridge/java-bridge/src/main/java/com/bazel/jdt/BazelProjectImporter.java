@@ -1,6 +1,9 @@
 package com.bazel.jdt;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspaceRoot;
@@ -12,6 +15,9 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
+import org.eclipse.jdt.core.IClasspathContainer;
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.ls.core.internal.AbstractProjectImporter;
 import org.eclipse.jdt.ls.core.internal.JobHelpers;
 
@@ -294,6 +300,8 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                             "Fast reload: failed to recreate project " + projectName, e));
                     }
                 }
+
+                batchPrefillContainers(bridge);
             }
         }, monitor);
 
@@ -301,84 +309,79 @@ public class BazelProjectImporter extends AbstractProjectImporter {
 
         long elapsed = System.currentTimeMillis() - startTime;
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-            "Fast reload complete: " + index.size() + " projects restored in " + elapsed + "ms. "
-            + "Scheduling background refresh for fresh data."));
+            "Fast reload complete: " + index.size() + " projects restored in " + elapsed + "ms"));
 
-        scheduleBackgroundRefresh();
         return true;
     }
 
-    private void scheduleBackgroundRefresh() {
-        org.eclipse.core.runtime.jobs.Job job = new org.eclipse.core.runtime.jobs.Job("Bazel: Background sync") {
-            @Override
-            protected IStatus run(IProgressMonitor pm) {
-                try {
-                    BazelBridge bridge = BazelBridge.getInstance();
-                    if (!bridge.isInitialized()) {
-                        return Status.OK_STATUS;
-                    }
+    private static void batchPrefillContainers(BazelBridge bridge) {
+        IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
+        IProject[] allProjects = workspaceRoot.getProjects();
 
-                    String[] scopePatterns = null;
-                    String[] buildFlags = null;
-                    if (rootFolder != null) {
-                        BazelProjectView projectView = BazelProjectView.parse(rootFolder);
-                        if (projectView != null && projectView.hasScope()) {
-                            scopePatterns = projectView.getScopePatterns().toArray(new String[0]);
-                        }
-                        if (projectView != null && !projectView.getBuildFlags().isEmpty()) {
-                            buildFlags = projectView.getBuildFlags().toArray(new String[0]);
-                        }
-                    }
+        List<IJavaProject> javaProjects = new ArrayList<>();
+        List<IClasspathContainer> containers = new ArrayList<>();
+        int skipped = 0;
 
-                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                        "Background sync: starting full pipeline"));
-                    long totalStart = System.currentTimeMillis();
-
-                    String[] targets = bridge.queryTargets(scopePatterns);
-                    if (targets == null || targets.length == 0) {
-                        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                            "Background sync: no targets found"));
-                        return Status.OK_STATUS;
-                    }
-
-                    bridge.populateGraph();
-                    String[] finalTargets = bridge.runAspectBuild(targets, buildFlags);
-
-                    if (finalTargets != null && finalTargets.length > 0) {
-                        String wsPath = rootFolder.getAbsolutePath();
-                        IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
-                        for (String targetLabel : finalTargets) {
-                            String packagePath = extractPackageName(targetLabel);
-                            String projectName = LabelUtils.toProjectName(packagePath);
-                            if (!workspaceRoot.getProject(projectName).exists()) {
-                                try {
-                                    BazelProjectCreator.createProjectForPackage(
-                                        wsPath, packagePath, targetLabel, pm, true);
-                                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                                        "Background sync: created new project " + projectName));
-                                } catch (Exception e) {
-                                    LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
-                                        "Background sync: failed to create project " + projectName, e));
-                                }
-                            }
-                        }
-                    }
-
-                    BazelClasspathManager.refreshClasspath();
-
-                    long totalElapsed = (System.currentTimeMillis() - totalStart) / 1000;
-                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                        "Background sync complete in " + totalElapsed + "s"));
-                } catch (Exception e) {
-                    LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
-                        "Background sync failed: " + e.getMessage(), e));
-                }
-                return Status.OK_STATUS;
+        for (IProject project : allProjects) {
+            if (!project.isOpen()) continue;
+            try {
+                if (!project.hasNature(BazelNature.NATURE_ID)) continue;
+            } catch (CoreException e) {
+                continue;
             }
-        };
-        job.setSystem(true);
-        job.setPriority(org.eclipse.core.runtime.jobs.Job.DECORATE);
-        job.schedule();
+
+            List<String> targetLabels = TargetProjectMapping.readTargets(project);
+            if (targetLabels.isEmpty()) {
+                skipped++;
+                continue;
+            }
+
+            List<String> allEntries = new ArrayList<>();
+            for (String label : targetLabels) {
+                String[] cached = TargetProjectMapping.readCachedClasspath(project, label);
+                if (cached != null) {
+                    Collections.addAll(allEntries, cached);
+                }
+            }
+            if (allEntries.isEmpty()) {
+                skipped++;
+                continue;
+            }
+
+            try {
+                BazelClasspathContainer container = new BazelClasspathContainer(
+                    allEntries.toArray(new String[0]), Collections.emptyList(),
+                    bridge.getDependencyResolutionMode(),
+                    project.getName());
+                if (container.getClasspathEntries().length == 0) {
+                    skipped++;
+                    continue;
+                }
+                javaProjects.add(JavaCore.create(project));
+                containers.add(container);
+            } catch (Exception e) {
+                LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                    "Failed to build cached container for " + project.getName() + ": " + e.getMessage()));
+                skipped++;
+            }
+        }
+
+        if (!javaProjects.isEmpty()) {
+            try {
+                JavaCore.setClasspathContainer(
+                    BazelClasspathContainer.CONTAINER_PATH,
+                    javaProjects.toArray(new IJavaProject[0]),
+                    containers.toArray(new IClasspathContainer[0]),
+                    null
+                );
+                LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                    "Batch pre-filled " + javaProjects.size() + " classpath containers from cache"
+                    + (skipped > 0 ? " (" + skipped + " skipped)" : "")));
+            } catch (Exception e) {
+                LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
+                    "Failed to batch pre-fill containers: " + e.getMessage(), e));
+            }
+        }
     }
 
     private static void ensureBazelProjectsGitignore(String workspacePath) {

@@ -50,8 +50,10 @@ public final class BazelProjectCreator {
             if (project.exists()) {
                 IPath currentLocation = project.getDescription().getLocation();
                 if (currentLocation != null && currentLocation.equals(expectedLocation)) {
-                    TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
-                    ensureNatures(project, monitor);
+                    List<String> existingLabels = TargetProjectMapping.readTargets(project);
+                    if (!existingLabels.contains(targetLabel)) {
+                        TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
+                    }
                     LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
                         "Project '" + projectName + "' already at .bazel-projects/, skipping rebuild"));
                     return project;
