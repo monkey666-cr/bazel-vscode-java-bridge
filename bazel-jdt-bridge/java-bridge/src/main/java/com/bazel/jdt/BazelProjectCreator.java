@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.eclipse.core.resources.ICommand;
+
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -113,6 +115,23 @@ public final class BazelProjectCreator {
             if (!hasJavaNature) newNatureIds[idx++] = JAVA_NATURE;
             if (!hasBazelNature) newNatureIds[idx] = BazelNature.NATURE_ID;
             desc.setNatureIds(newNatureIds);
+            project.setDescription(desc, monitor);
+        }
+
+        removeJavaBuilder(project, monitor);
+    }
+
+    private static void removeJavaBuilder(IProject project, IProgressMonitor monitor) throws CoreException {
+        org.eclipse.core.resources.IProjectDescription desc = project.getDescription();
+        ICommand[] buildSpec = desc.getBuildSpec();
+        List<ICommand> filtered = new ArrayList<>();
+        for (ICommand cmd : buildSpec) {
+            if (!"org.eclipse.jdt.core.javabuilder".equals(cmd.getBuilderName())) {
+                filtered.add(cmd);
+            }
+        }
+        if (filtered.size() < buildSpec.length) {
+            desc.setBuildSpec(filtered.toArray(new ICommand[0]));
             project.setDescription(desc, monitor);
         }
     }

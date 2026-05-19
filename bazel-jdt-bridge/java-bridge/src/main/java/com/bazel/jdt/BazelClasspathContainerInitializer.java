@@ -21,6 +21,11 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
 
     private static final ILog LOG = Platform.getLog(BazelClasspathContainerInitializer.class);
     private static final Set<String> INITIALIZING = ConcurrentHashMap.newKeySet();
+    private static volatile boolean IMPORT_IN_PROGRESS = false;
+
+    public static void setImportInProgress(boolean inProgress) {
+        IMPORT_IN_PROGRESS = inProgress;
+    }
 
     @Override
     public void initialize(IPath containerPath, IJavaProject project) throws CoreException {
@@ -28,6 +33,19 @@ public class BazelClasspathContainerInitializer extends ClasspathContainerInitia
             return;
         }
         String projectName = project.getProject().getName();
+
+        if (IMPORT_IN_PROGRESS) {
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Skipping container resolve during import for project " + projectName));
+            JavaCore.setClasspathContainer(
+                BazelClasspathContainer.CONTAINER_PATH,
+                new IJavaProject[]{project},
+                new IClasspathContainer[]{BazelClasspathContainer.EMPTY},
+                null
+            );
+            return;
+        }
+
         if (!INITIALIZING.add(projectName)) {
             LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
                 "Skipping recursive initialize for project " + projectName));

@@ -22,6 +22,7 @@ import org.eclipse.jdt.core.JavaCore;
 public class BazelClasspathContainer implements IClasspathContainer {
     private static final ILog LOG = Platform.getLog(BazelClasspathContainer.class);
     private static final Set<String> WARNED_MISSING_PATHS = ConcurrentHashMap.newKeySet();
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> FILE_EXISTS_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
     public static final IPath CONTAINER_PATH = Path.fromPortableString("com.bazel.jdt.BAZEL_CONTAINER");
     private static final String DESCRIPTION = "Bazel Dependencies";
 
@@ -75,7 +76,7 @@ public class BazelClasspathContainer implements IClasspathContainer {
         switch (type) {
             case "LIB":
                 IPath jarPath = Path.fromPortableString(path);
-                if (!jarPath.toFile().exists()) {
+                if (!fileExists(path, jarPath)) {
                     if (WARNED_MISSING_PATHS.add(path)) {
                         LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
                             "Skipping non-existent JAR: " + path));
@@ -83,7 +84,7 @@ public class BazelClasspathContainer implements IClasspathContainer {
                     return null;
                 }
                 IPath srcPath = sourcePath != null ? Path.fromPortableString(sourcePath) : null;
-                if (srcPath != null && !srcPath.toFile().exists()) {
+                if (srcPath != null && !fileExists(sourcePath, srcPath)) {
                     if (WARNED_MISSING_PATHS.add(sourcePath)) {
                         LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
                             "Source attachment path does not exist, ignoring: " + sourcePath));
@@ -176,8 +177,13 @@ public class BazelClasspathContainer implements IClasspathContainer {
         return LabelUtils.extractPackageName(targetLabel);
     }
 
+    private static boolean fileExists(String pathKey, IPath ipath) {
+        return FILE_EXISTS_CACHE.computeIfAbsent(pathKey, k -> ipath.toFile().exists());
+    }
+
     static void resetWarnings() {
         WARNED_MISSING_PATHS.clear();
+        FILE_EXISTS_CACHE.clear();
     }
 
     @Override
