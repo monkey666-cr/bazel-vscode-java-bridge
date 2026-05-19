@@ -44,28 +44,35 @@ public final class BazelProjectCreator {
             IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
             IProject project = workspaceRoot.getProject(projectName);
 
-            String inferredSourceRoot = SourceRootUtils.inferSourceRoot(workspacePath, packagePath);
+            File bazelProjectDir = new File(workspacePath, ".bazel-projects/" + projectName);
+            IPath expectedLocation = new Path(bazelProjectDir.getAbsolutePath());
 
-            if (project.exists() && inferredSourceRoot != null
-                    && project.getDescription().getLocation() != null) {
+            if (project.exists()) {
+                IPath currentLocation = project.getDescription().getLocation();
+                if (currentLocation != null && currentLocation.equals(expectedLocation)) {
+                    TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
+                    ensureNatures(project, monitor);
+                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                        "Project '" + projectName + "' already at .bazel-projects/, skipping rebuild"));
+                    return project;
+                }
                 LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                    "Recreating project '" + projectName
-                    + "' — stale custom location conflicts with linked source folder"));
+                    "Migrating project '" + projectName + "' to .bazel-projects/ location"));
                 project.delete(false, true, monitor);
+            }
+
+            if (!bazelProjectDir.exists() && !bazelProjectDir.mkdirs()) {
+                LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
+                    "Failed to create .bazel-projects directory: " + bazelProjectDir.getAbsolutePath()));
+                return null;
             }
 
             if (!project.exists()) {
                 org.eclipse.core.resources.IProjectDescription projDesc =
                     project.getWorkspace().newProjectDescription(projectName);
-                if (inferredSourceRoot == null) {
-                    File packageDir = new File(workspacePath, packagePath);
-                    projDesc.setLocation(new Path(packageDir.getAbsolutePath()));
-                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                        "Creating project '" + projectName + "' at " + packageDir.getAbsolutePath()));
-                } else {
-                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                        "Creating project '" + projectName + "' with default location (source root: " + inferredSourceRoot + ")"));
-                }
+                projDesc.setLocation(expectedLocation);
+                LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                    "Creating project '" + projectName + "' at " + bazelProjectDir.getAbsolutePath()));
                 project.create(projDesc, monitor);
             }
             if (!project.isOpen()) {
@@ -75,6 +82,7 @@ public final class BazelProjectCreator {
             TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
 
             ensureNatures(project, monitor);
+            String inferredSourceRoot = SourceRootUtils.inferSourceRoot(workspacePath, packagePath);
             configureClasspath(project, packagePath, workspacePath, targetLabel, inferredSourceRoot, monitor, deferContainerResolution);
 
             return project;
@@ -117,7 +125,12 @@ public final class BazelProjectCreator {
         for (String srcRoot : STANDARD_SRC_ROOTS) {
             java.io.File srcDir = new java.io.File(workspacePath, packageName + "/" + srcRoot);
             if (srcDir.isDirectory()) {
-                IPath sourcePath = new Path("/" + project.getName() + "/" + srcRoot);
+                String linkedName = SourceRootUtils.linkedFolderName(srcRoot);
+                org.eclipse.core.resources.IFolder linkedFolder = project.getFolder(linkedName);
+                if (!linkedFolder.exists()) {
+                    linkedFolder.createLink(new Path(srcDir.getAbsolutePath()), 0, monitor);
+                }
+                IPath sourcePath = new Path("/" + project.getName() + "/" + linkedName);
                 sourceEntries.add(JavaCore.newSourceEntry(sourcePath));
             }
         }
@@ -131,11 +144,11 @@ public final class BazelProjectCreator {
                 } catch (Exception e) {
                     LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
                         "Failed to create linked source folder for " + packageName
-                        + ", falling back to project root: " + e.getMessage()));
-                    entries.add(JavaCore.newSourceEntry(new Path("/" + project.getName())));
+                        + ", falling back to linked package folder: " + e.getMessage()));
+                    configureLinkedPackageFolder(project, workspacePath, packageName, entries, monitor);
                 }
             } else {
-                entries.add(JavaCore.newSourceEntry(new Path("/" + project.getName())));
+                configureLinkedPackageFolder(project, workspacePath, packageName, entries, monitor);
             }
         } else {
             entries.addAll(sourceEntries);
@@ -151,6 +164,18 @@ public final class BazelProjectCreator {
 
         javaProject.setRawClasspath(entries.toArray(new IClasspathEntry[0]), monitor);
         javaProject.setOutputLocation(new Path("/" + project.getName() + "/bin"), monitor);
+    }
+
+    private static void configureLinkedPackageFolder(IProject project, String workspacePath,
+            String packageName, List<IClasspathEntry> entries,
+            IProgressMonitor monitor) throws CoreException {
+        String linkedName = "_pkg";
+        org.eclipse.core.resources.IFolder linkedFolder = project.getFolder(linkedName);
+        if (!linkedFolder.exists()) {
+            File packageDir = new File(workspacePath, packageName);
+            linkedFolder.createLink(new Path(packageDir.getAbsolutePath()), 0, monitor);
+        }
+        entries.add(JavaCore.newSourceEntry(new Path("/" + project.getName() + "/" + linkedName)));
     }
 
     private static void addJreContainerEntry(List<IClasspathEntry> entries) {

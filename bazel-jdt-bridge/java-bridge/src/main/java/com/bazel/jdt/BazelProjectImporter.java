@@ -59,6 +59,8 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Importing Bazel workspace: " + workspacePath));
 
+        ensureBazelProjectsGitignore(workspacePath);
+
         if (projectView != null && !projectView.getDirectories().isEmpty()) {
             String[] watchDirs = projectView.getDirectories().toArray(new String[0]);
             bridge.updateWatchPaths(watchDirs);
@@ -170,7 +172,9 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                             workspacePath, packagePath, targetLabel, pm, true);
 
                         if (firstProject && project != null) {
-                            TargetProjectMapping.storeWorkspaceConfig(project, workspacePath, bazelPath, cacheDir);
+                            if (TargetProjectMapping.readWorkspaceConfig(project) == null) {
+                                TargetProjectMapping.storeWorkspaceConfig(project, workspacePath, bazelPath, cacheDir);
+                            }
                             TargetProjectMapping.storeWorkspaceConfigFile(workspacePath, bazelPath, cacheDir);
                             firstProject = false;
                         }
@@ -255,6 +259,8 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         BazelBridge bridge = BazelBridge.getInstance();
         bridge.initialize(workspacePath, bazelPath, cacheDir);
 
+        ensureBazelProjectsGitignore(workspacePath);
+
         if (rootFolder != null) {
             BazelProjectView projectView = BazelProjectView.parse(rootFolder);
             if (projectView != null && !projectView.getDirectories().isEmpty()) {
@@ -278,7 +284,9 @@ public class BazelProjectImporter extends AbstractProjectImporter {
                         IProject project = BazelProjectCreator.createProjectForPackage(
                             wsPath, packagePath, targetLabel, pm, true);
                         if (firstProject && project != null) {
-                            TargetProjectMapping.storeWorkspaceConfig(project, wsPath, bzPath, cDir);
+                            if (TargetProjectMapping.readWorkspaceConfig(project) == null) {
+                                TargetProjectMapping.storeWorkspaceConfig(project, wsPath, bzPath, cDir);
+                            }
                             firstProject = false;
                         }
                     } catch (Exception e) {
@@ -371,6 +379,34 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         job.setSystem(true);
         job.setPriority(org.eclipse.core.runtime.jobs.Job.DECORATE);
         job.schedule();
+    }
+
+    private static void ensureBazelProjectsGitignore(String workspacePath) {
+        File gitignore = new File(workspacePath, ".gitignore");
+        String entry = ".bazel-projects/";
+        try {
+            if (gitignore.exists()) {
+                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+                for (String line : content.split("\n")) {
+                    if (line.trim().equals(entry)) {
+                        return;
+                    }
+                }
+                String separator = content.endsWith("\n") ? "" : "\n";
+                java.nio.file.Files.write(gitignore.toPath(),
+                    (separator + entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.APPEND);
+            } else {
+                java.nio.file.Files.write(gitignore.toPath(),
+                    (entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Added .bazel-projects/ to .gitignore"));
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                "Failed to update .gitignore: " + e.getMessage()));
+        }
     }
 
     @Override
