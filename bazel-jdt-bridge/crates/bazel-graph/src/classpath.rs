@@ -70,21 +70,6 @@ pub struct ComputedClasspath {
     pub output_jars: Vec<String>,
 }
 
-/// Infer the target kind from a Bazel label based on naming conventions.
-pub fn infer_target_kind(label: &str) -> TargetKind {
-    let rule_name = label.rsplit(':').next().unwrap_or(label);
-    if rule_name.contains("_test") || rule_name.ends_with("Test") {
-        TargetKind::JavaTest
-    } else if rule_name.contains("_binary") || rule_name.ends_with("Binary") || rule_name == "main"
-    {
-        TargetKind::JavaBinary
-    } else if rule_name.contains("_import") || rule_name.ends_with("Import") {
-        TargetKind::JavaImport
-    } else {
-        TargetKind::JavaLibrary
-    }
-}
-
 impl ComputedClasspath {
     pub fn compute_for(
         graph: &DependencyGraph,
@@ -124,7 +109,7 @@ impl ComputedClasspath {
         }
 
         if labels.len() == 1 {
-            let kind = infer_target_kind(labels[0]);
+            let kind = graph.get_target_kind(labels[0]);
             return Self::compute_for(graph, labels[0], kind, workspace_root);
         }
 
@@ -132,7 +117,7 @@ impl ComputedClasspath {
         let mut all_output_jars = Vec::new();
 
         for &label in labels {
-            let kind = infer_target_kind(label);
+            let kind = graph.get_target_kind(label);
             let cp = match Self::compute_for(graph, label, kind, workspace_root) {
                 Ok(cp) => cp,
                 Err(e) => {
@@ -1031,50 +1016,6 @@ mod tests {
         }
     }
 
-    // --- infer_target_kind tests (moved from jni_exports.rs) ---
-
-    #[test]
-    fn test_infer_target_kind_library() {
-        assert_eq!(infer_target_kind("//foo:utils"), TargetKind::JavaLibrary);
-        assert_eq!(infer_target_kind("//app:app_lib"), TargetKind::JavaLibrary);
-        assert_eq!(infer_target_kind("//pkg:Greeter"), TargetKind::JavaLibrary);
-    }
-
-    #[test]
-    fn test_infer_target_kind_test() {
-        assert_eq!(infer_target_kind("//foo:my_test"), TargetKind::JavaTest);
-        assert_eq!(infer_target_kind("//foo:GreeterTest"), TargetKind::JavaTest);
-        assert_eq!(
-            infer_target_kind("//foo:integration_test"),
-            TargetKind::JavaTest
-        );
-    }
-
-    #[test]
-    fn test_infer_target_kind_binary() {
-        assert_eq!(infer_target_kind("//foo:my_binary"), TargetKind::JavaBinary);
-        assert_eq!(infer_target_kind("//foo:AppBinary"), TargetKind::JavaBinary);
-        assert_eq!(infer_target_kind("//foo:main"), TargetKind::JavaBinary);
-    }
-
-    #[test]
-    fn test_infer_target_kind_import() {
-        assert_eq!(infer_target_kind("//foo:my_import"), TargetKind::JavaImport);
-        assert_eq!(
-            infer_target_kind("//foo:MavenImport"),
-            TargetKind::JavaImport
-        );
-    }
-
-    #[test]
-    fn test_infer_target_kind_external() {
-        assert_eq!(infer_target_kind("@maven//:guava"), TargetKind::JavaLibrary);
-        assert_eq!(
-            infer_target_kind("@@rules_jvm_external~maven~maven//:com_google_guava_guava"),
-            TargetKind::JavaLibrary
-        );
-    }
-
     // --- compute_for_targets tests ---
 
     #[test]
@@ -1603,6 +1544,46 @@ mod tests {
             jar_entries[0].source_attachment_path,
             Some(src1_path.to_string()),
             "First valid source should be preserved, not overwritten by later target"
+        );
+    }
+
+    #[test]
+    fn test_importer_named_target_gets_transitive_deps() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![
+            make_target(
+                "//funds/csv:funds_csv_importer",
+                vec!["@maven//:guava", "//lib:utils"],
+                vec!["/importer.jar"],
+            ),
+            make_target("@maven//:guava", vec![], vec!["/guava.jar"]),
+            make_target("//lib:utils", vec![], vec!["/utils.jar"]),
+        ];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+
+        let cp = ComputedClasspath::compute_for_targets(
+            &graph,
+            &["//funds/csv:funds_csv_importer"],
+            None,
+        )
+        .unwrap();
+
+        let lib_paths: Vec<&str> = cp
+            .entries
+            .iter()
+            .filter(|e| e.entry_type == ClasspathEntryType::Library)
+            .map(|e| e.path.as_str())
+            .collect();
+
+        assert!(
+            lib_paths.contains(&"/guava.jar"),
+            "Expected transitive dep guava.jar for 'importer' target, got: {:?}",
+            lib_paths
+        );
+        assert!(
+            lib_paths.contains(&"/utils.jar"),
+            "Expected transitive dep utils.jar for 'importer' target, got: {:?}",
+            lib_paths
         );
     }
 }

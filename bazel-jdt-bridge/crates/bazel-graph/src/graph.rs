@@ -1,3 +1,4 @@
+use crate::classpath::TargetKind;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
@@ -22,6 +23,8 @@ pub struct DependencyGraph {
     /// Maps apparent external repo labels to canonical bzlmod labels.
     /// e.g. `@maven//:guava` → `@@rules_jvm_external~maven~maven//:guava`
     pub(crate) label_aliases: HashMap<String, String>,
+    /// Actual Bazel rule kind from aspect output (e.g., "java_library", "java_import").
+    target_kinds: HashMap<String, String>,
 }
 
 /// Error for graph operations
@@ -42,6 +45,7 @@ impl DependencyGraph {
             target_jars: HashMap::new(),
             testonly_targets: HashSet::new(),
             label_aliases: HashMap::new(),
+            target_kinds: HashMap::new(),
         }
     }
 
@@ -150,6 +154,25 @@ impl DependencyGraph {
         self.testonly_targets.contains(label)
     }
 
+    /// Store the actual Bazel rule kind for a target.
+    pub fn set_target_kind(&mut self, label: &str, kind: &str) {
+        if !kind.is_empty() {
+            self.target_kinds.insert(label.to_string(), kind.to_string());
+        }
+    }
+
+    /// Look up the stored Bazel rule kind for a target, returning `TargetKind`.
+    /// Falls back to `Unknown` (routes to `compute_for_library`) when no kind data is stored.
+    pub fn get_target_kind(&self, label: &str) -> TargetKind {
+        match self.target_kinds.get(label).map(|s| s.as_str()) {
+            Some("java_import") => TargetKind::JavaImport,
+            Some("java_test") => TargetKind::JavaTest,
+            Some("java_binary") => TargetKind::JavaBinary,
+            Some("java_library") => TargetKind::JavaLibrary,
+            _ => TargetKind::Unknown,
+        }
+    }
+
     /// Get all target labels
     pub fn all_targets(&self) -> Vec<String> {
         self.label_to_index.keys().cloned().collect()
@@ -162,6 +185,7 @@ impl DependencyGraph {
         self.target_jars.clear();
         self.testonly_targets.clear();
         self.label_aliases.clear();
+        self.target_kinds.clear();
     }
 
     /// Populate graph from Bazel aspect output (primary data source).
@@ -178,6 +202,7 @@ impl DependencyGraph {
         for info in results {
             let label = &info.label;
             self.add_target(label);
+            self.set_target_kind(label, &info.kind);
 
             if let Some(apparent) = bazel_aspect::canonical_to_apparent_label(label) {
                 self.label_aliases
@@ -2703,5 +2728,70 @@ mod tests {
         std::env::set_var("HOME", tmp.path());
         let result = probe_maven_local_cache("com.nonexistent", "artifact", "1.0");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_target_kind_from_aspect_java_library() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![make_target(
+            "//foo:funds_csv_importer",
+            vec![],
+            vec!["/foo.jar"],
+        )];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+        assert_eq!(
+            graph.get_target_kind("//foo:funds_csv_importer"),
+            TargetKind::JavaLibrary,
+            "Target named 'importer' with kind java_library should be JavaLibrary, not JavaImport"
+        );
+    }
+
+    #[test]
+    fn test_get_target_kind_from_aspect_java_import() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![make_target_with_compile_jars(
+            "@maven//:guava",
+            vec![],
+            vec!["/guava.jar"],
+        )];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+        assert_eq!(
+            graph.get_target_kind("@maven//:guava"),
+            TargetKind::JavaImport,
+            "Target with kind java_import should be JavaImport"
+        );
+    }
+
+    #[test]
+    fn test_get_target_kind_no_stored_kind() {
+        let mut graph = DependencyGraph::new();
+        graph.add_target("//foo:bar");
+        assert_eq!(
+            graph.get_target_kind("//foo:bar"),
+            TargetKind::Unknown,
+            "Target with no stored kind should return Unknown"
+        );
+    }
+
+    #[test]
+    fn test_get_target_kind_unrecognized_kind() {
+        let mut graph = DependencyGraph::new();
+        graph.add_target("//foo:bar");
+        graph.set_target_kind("//foo:bar", "kt_jvm_library");
+        assert_eq!(
+            graph.get_target_kind("//foo:bar"),
+            TargetKind::Unknown,
+            "Unrecognized kind string should return Unknown"
+        );
+    }
+
+    #[test]
+    fn test_clear_resets_target_kinds() {
+        let mut graph = DependencyGraph::new();
+        let results = vec![make_target("//foo:lib", vec![], vec!["/foo.jar"])];
+        graph.populate_from_aspects(&results, Path::new("/workspace"));
+        assert_eq!(graph.get_target_kind("//foo:lib"), TargetKind::JavaLibrary);
+        graph.clear();
+        assert_eq!(graph.get_target_kind("//foo:lib"), TargetKind::Unknown);
     }
 }

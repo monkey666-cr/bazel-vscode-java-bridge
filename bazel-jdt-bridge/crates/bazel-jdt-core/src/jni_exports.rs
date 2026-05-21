@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use bazel_graph::infer_target_kind;
 use jni::objects::{JClass, JObject, JObjectArray, JString};
 use jni::sys::{jint, jlong, jobjectArray, jsize};
 use jni::JNIEnv;
@@ -544,10 +543,9 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeComputeClasspath(
         }
     }
 
-    let target_kind = infer_target_kind(&label);
-
     let graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
     let has_aspect_data = graph.get_target_jars(&label).is_some();
+    let target_kind = graph.get_target_kind(&label);
     drop(graph);
 
     if has_aspect_data {
@@ -911,7 +909,7 @@ fn run_full_resolution(
     bazel_graph::ComputedClasspath::compute_for(
         &graph,
         target_label,
-        infer_target_kind(target_label),
+        graph.get_target_kind(target_label),
         Some(state.workspace_root.to_str().unwrap_or("")),
     )
     .map_err(|e| format!("Graph computation failed: {}", e))
