@@ -520,7 +520,10 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeBuildTargets(
         "nativeBuildTargets: plain build for {} targets",
         target_vec.len()
     );
-    match state.invoker.build_targets_sync(&target_vec, build_flags_ref) {
+    match state
+        .invoker
+        .build_targets_sync(&target_vec, build_flags_ref)
+    {
         Ok(()) => {
             log::info!("Plain build complete");
             1

@@ -1712,13 +1712,9 @@ mod tests {
         )];
         graph.populate_from_aspects(&results, Path::new("/workspace"));
 
-        let cp = ComputedClasspath::compute_for(
-            &graph,
-            "@maven//:guava",
-            TargetKind::JavaImport,
-            None,
-        )
-        .unwrap();
+        let cp =
+            ComputedClasspath::compute_for(&graph, "@maven//:guava", TargetKind::JavaImport, None)
+                .unwrap();
 
         assert!(
             !cp.output_jars.is_empty(),
