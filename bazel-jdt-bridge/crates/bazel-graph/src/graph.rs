@@ -157,7 +157,8 @@ impl DependencyGraph {
     /// Store the actual Bazel rule kind for a target.
     pub fn set_target_kind(&mut self, label: &str, kind: &str) {
         if !kind.is_empty() {
-            self.target_kinds.insert(label.to_string(), kind.to_string());
+            self.target_kinds
+                .insert(label.to_string(), kind.to_string());
         }
     }
 
