@@ -37,6 +37,8 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 return handleWaitForIndexesReady();
             case "bazel-jdt.buildTarget":
                 return handleBuildTarget(arguments);
+            case "bazel-jdt.setActiveDebugProject":
+                return handleSetActiveDebugProject(arguments);
             default:
                 return null;
         }
@@ -174,7 +176,6 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 throw new IllegalArgumentException("Project name required");
             }
             String projectName = (String) arguments.get(0);
-            BazelRuntimeClasspathEntryResolver.setActiveDebugProject(projectName);
 
             IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(projectName);
             if (!project.exists()) {
@@ -206,9 +207,9 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
             LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
                 "Pre-debug build complete for " + projectName));
 
-            BazelRuntimeClasspathEntryResolver.clearCache();
+            BazelRuntimeClasspathEntryResolver.clearCacheForProject(projectName);
             BazelClasspathContainer.resetWarnings();
-            BazelClasspathManager.setMergedClasspathContainer(project, true);
+            BazelClasspathManager.setMergedClasspathContainer(project, false);
 
             return null;
         } catch (Exception e) {
@@ -216,6 +217,13 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 "Pre-debug build failed", e));
             throw new RuntimeException("Pre-debug build failed: " + e.getMessage(), e);
         }
+    }
+
+    private Object handleSetActiveDebugProject(List<Object> arguments) {
+        if (!arguments.isEmpty() && arguments.get(0) instanceof String) {
+            BazelRuntimeClasspathEntryResolver.setActiveDebugProject((String) arguments.get(0));
+        }
+        return null;
     }
 
     private Object handleCreateProjectForPackage(List<Object> arguments, IProgressMonitor monitor) {

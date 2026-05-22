@@ -23,7 +23,6 @@ public class BazelRuntimeClasspathEntryResolver implements IRuntimeClasspathEntr
     private static final ILog LOG = Platform.getLog(BazelRuntimeClasspathEntryResolver.class);
     private static final ConcurrentHashMap<String, IRuntimeClasspathEntry[]> CACHE = new ConcurrentHashMap<>();
     private static final IRuntimeClasspathEntry[] EMPTY = new IRuntimeClasspathEntry[0];
-
     private static volatile String activeDebugProject;
 
     @Override
@@ -101,15 +100,19 @@ public class BazelRuntimeClasspathEntryResolver implements IRuntimeClasspathEntr
         }
     }
 
+    public static void clearCache() {
+        CACHE.clear();
+    }
+
+    public static void clearCacheForProject(String projectName) {
+        CACHE.remove(projectName);
+    }
+
     public static void setActiveDebugProject(String projectName) {
         activeDebugProject = projectName;
     }
 
     public static void clearActiveDebugProject() {
         activeDebugProject = null;
-    }
-
-    public static void clearCache() {
-        CACHE.clear();
     }
 }

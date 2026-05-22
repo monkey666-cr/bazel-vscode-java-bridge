@@ -1,6 +1,26 @@
 import * as vscode from 'vscode';
 
 export class BazelDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
+    async resolveDebugConfiguration(
+        _folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+        _token?: vscode.CancellationToken
+    ): Promise<vscode.DebugConfiguration | undefined> {
+        const projectName = config.projectName as string | undefined;
+        if (projectName) {
+            try {
+                await vscode.commands.executeCommand(
+                    'java.execute.workspaceCommand',
+                    'bazel-jdt.setActiveDebugProject',
+                    projectName
+                );
+            } catch {
+                // Best-effort: filter not set, debug may be slower but still works
+            }
+        }
+        return config;
+    }
+
     async resolveDebugConfigurationWithSubstitutedVariables(
         _folder: vscode.WorkspaceFolder | undefined,
         config: vscode.DebugConfiguration,
