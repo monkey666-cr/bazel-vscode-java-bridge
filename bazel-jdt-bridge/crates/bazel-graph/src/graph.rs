@@ -1595,7 +1595,10 @@ mod tests {
             source_path: None,
         };
 
-        assert_eq!(jar.effective_path(), runtime_file.to_string_lossy().as_ref());
+        assert_eq!(
+            jar.effective_path(),
+            runtime_file.to_string_lossy().as_ref()
+        );
         let _ = std::fs::remove_file(&runtime_file);
     }
 
@@ -1694,8 +1697,14 @@ mod tests {
         let full_jars = vec!["/bazel-out/bin/external/foo/downloaded.jar".to_string()];
         let runtime_jars = vec!["/execroot/external/foo/downloaded.jar".to_string()];
 
-        let resolved =
-            build_resolved_jars(&java_info, &full_jars, &[], &runtime_jars, &workspace, "//foo:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &full_jars,
+            &[],
+            &runtime_jars,
+            &workspace,
+            "//foo:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert_eq!(
@@ -1714,8 +1723,14 @@ mod tests {
             "/execroot/external/bar/classes.jar".to_string(),
         ];
 
-        let resolved =
-            build_resolved_jars(&java_info, &full_jars, &[], &runtime_jars, &workspace, "//foo:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &full_jars,
+            &[],
+            &runtime_jars,
+            &workspace,
+            "//foo:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert!(
@@ -2710,8 +2725,14 @@ mod tests {
         };
 
         let classpath_jars = vec![classpath_jar.to_string_lossy().into_owned()];
-        let resolved =
-            build_resolved_jars(&java_info, &classpath_jars, &[], &[], &workspace, "//lib:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &classpath_jars,
+            &[],
+            &[],
+            &workspace,
+            "//lib:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert!(
@@ -2751,8 +2772,14 @@ mod tests {
         };
 
         let classpath_jars = vec![classpath_jar.to_string_lossy().into_owned()];
-        let resolved =
-            build_resolved_jars(&java_info, &classpath_jars, &[], &[], &workspace, "//lib:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &classpath_jars,
+            &[],
+            &[],
+            &workspace,
+            "//lib:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert_eq!(
@@ -2790,8 +2817,14 @@ mod tests {
         };
 
         let classpath_jars = vec![classpath_jar.to_string_lossy().into_owned()];
-        let resolved =
-            build_resolved_jars(&java_info, &classpath_jars, &[], &[], &workspace, "//lib:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &classpath_jars,
+            &[],
+            &[],
+            &workspace,
+            "//lib:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert!(
@@ -2915,8 +2948,14 @@ mod tests {
 
         std::env::set_var("HOME", tmp.path());
         let classpath_jars = vec![classpath_jar.to_string_lossy().into_owned()];
-        let resolved =
-            build_resolved_jars(&java_info, &classpath_jars, &[], &[], &workspace, "//lib:lib");
+        let resolved = build_resolved_jars(
+            &java_info,
+            &classpath_jars,
+            &[],
+            &[],
+            &workspace,
+            "//lib:lib",
+        );
 
         assert_eq!(resolved.len(), 1);
         assert!(
