@@ -15,19 +15,31 @@ pub struct ResolvedJar {
     pub source_path: Option<String>,
 }
 
-fn is_ijar_path(path: &str) -> bool {
-    path.contains("/_ijar/")
+fn is_header_jar(path: &str) -> bool {
+    if path.contains("/_ijar/") {
+        return true;
+    }
+    // Bazel rules_jvm_external produces processed_ prefix header JARs
+    // that contain only class signatures (no method bodies), similar to
+    // ijar outputs but with a different naming convention.
+    std::path::Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().starts_with("processed_"))
+        .unwrap_or(false)
 }
 
 impl ResolvedJar {
     pub fn effective_path(&self) -> &str {
-        if std::path::Path::new(&self.full_jar_path).exists() {
+        if std::path::Path::new(&self.full_jar_path).exists() && !is_header_jar(&self.full_jar_path)
+        {
             &self.full_jar_path
         } else if let Some(ref runtime) = self.runtime_jar_path {
             if std::path::Path::new(runtime).exists() {
                 runtime
+            } else if is_header_jar(&self.full_jar_path) {
+                &self.full_jar_path
             } else if let Some(ref compile) = self.compile_jar_path {
-                if is_ijar_path(compile) {
+                if is_header_jar(compile) {
                     &self.full_jar_path
                 } else {
                     compile
@@ -35,8 +47,10 @@ impl ResolvedJar {
             } else {
                 &self.full_jar_path
             }
+        } else if is_header_jar(&self.full_jar_path) {
+            &self.full_jar_path
         } else if let Some(ref compile) = self.compile_jar_path {
-            if is_ijar_path(compile) {
+            if is_header_jar(compile) {
                 &self.full_jar_path
             } else {
                 compile
@@ -836,13 +850,21 @@ fn build_resolved_jars(
                 with_source += 1;
             }
 
-            let runtime_jar_path = std::path::Path::new(jar_path)
-                .file_name()
-                .and_then(|fname| {
-                    runtime_jar_by_filename
-                        .get(fname.to_string_lossy().as_ref())
-                        .and_then(|opt| opt.clone())
-                });
+            let runtime_jar_path = {
+                let fname = std::path::Path::new(jar_path)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let lookup_name = fname.strip_prefix("processed_").unwrap_or(&fname);
+                runtime_jar_by_filename
+                    .get(lookup_name)
+                    .and_then(|opt| opt.clone())
+                    .or_else(|| {
+                        runtime_jar_by_filename
+                            .get(&fname)
+                            .and_then(|opt| opt.clone())
+                    })
+            };
 
             ResolvedJar {
                 full_jar_path: jar_path.clone(),
@@ -1646,6 +1668,98 @@ mod tests {
             jar.effective_path(),
             "/compile/normal-header.jar",
             "effective_path() should still return non-ijar compile_jar"
+        );
+    }
+
+    #[test]
+    fn test_is_header_jar_detects_processed_prefix() {
+        assert!(
+            is_header_jar(
+                "/bazel-out/bin/external/rules_jvm_external++maven+maven/v1/https/repo1.maven.org/maven2/com/google/guava/guava/33.4.0-jre/processed_guava-33.4.0-jre.jar"
+            ),
+            "processed_ prefix should be detected as header JAR"
+        );
+    }
+
+    #[test]
+    fn test_is_header_jar_detects_ijar_path() {
+        assert!(
+            is_header_jar("/bazel-out/bin/external/maven/foo/_ijar/downloaded-ijar.jar"),
+            "/_ijar/ path should be detected as header JAR"
+        );
+    }
+
+    #[test]
+    fn test_is_header_jar_rejects_normal_jar() {
+        assert!(
+            !is_header_jar("/path/to/guava-33.4.0-jre.jar"),
+            "normal JAR should not be detected as header JAR"
+        );
+    }
+
+    #[test]
+    fn test_is_header_jar_rejects_processed_in_middle() {
+        assert!(
+            !is_header_jar("/path/to/my-processed-lib.jar"),
+            "processed in middle of filename should not be falsely detected"
+        );
+    }
+
+    #[test]
+    fn test_effective_path_skips_processed_compile_jar_when_full_exists() {
+        let tmp_dir = std::env::temp_dir();
+        let full_file = tmp_dir.join("test_processed_full_guava.jar");
+        std::fs::write(&full_file, b"fake full jar").unwrap();
+
+        let jar = ResolvedJar {
+            full_jar_path: full_file.to_string_lossy().into_owned(),
+            compile_jar_path: Some("/path/to/processed_guava-33.4.0-jre.jar".to_string()),
+            runtime_jar_path: None,
+            source_path: None,
+        };
+
+        assert_eq!(
+            jar.effective_path(),
+            full_file.to_string_lossy().as_ref(),
+            "effective_path() should return full_jar when it exists, skipping processed_ compile_jar"
+        );
+        let _ = std::fs::remove_file(&full_file);
+    }
+
+    #[test]
+    fn test_effective_path_skips_processed_compile_jar_when_runtime_exists() {
+        let tmp_dir = std::env::temp_dir();
+        let runtime_file = tmp_dir.join("test_processed_runtime_guava.jar");
+        std::fs::write(&runtime_file, b"fake runtime jar").unwrap();
+
+        let jar = ResolvedJar {
+            full_jar_path: "/nonexistent/processed_guava-33.4.0-jre.jar".to_string(),
+            compile_jar_path: Some("/path/to/processed_guava-33.4.0-jre.jar".to_string()),
+            runtime_jar_path: Some(runtime_file.to_string_lossy().into_owned()),
+            source_path: None,
+        };
+
+        assert_eq!(
+            jar.effective_path(),
+            runtime_file.to_string_lossy().as_ref(),
+            "effective_path() should return runtime_jar when it exists, skipping processed_ compile_jar"
+        );
+        let _ = std::fs::remove_file(&runtime_file);
+    }
+
+    #[test]
+    fn test_effective_path_skips_processed_compile_jar_as_last_fallback() {
+        let jar = ResolvedJar {
+            full_jar_path: "/nonexistent/guava-33.4.0-jre.jar".to_string(),
+            compile_jar_path: Some("/path/to/processed_guava-33.4.0-jre.jar".to_string()),
+            runtime_jar_path: None,
+            source_path: None,
+        };
+
+        assert_eq!(
+            jar.effective_path(),
+            "/nonexistent/guava-33.4.0-jre.jar",
+            "effective_path() should skip processed_ compile_jar even as last fallback"
         );
     }
 
