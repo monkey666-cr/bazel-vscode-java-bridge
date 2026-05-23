@@ -18,6 +18,7 @@ public final class BazelBridge {
     private volatile String dependencySourceLoadingMode = "full-project";
     private volatile String syncMode = "fast";
     private volatile String[] cachedDependencyPackages = new String[0];
+    private volatile BazelProjectView projectView;
 
     private static ExecutorService createExecutor() {
         return Executors.newSingleThreadExecutor(r -> {
@@ -57,6 +58,7 @@ public final class BazelBridge {
             lastWorkspacePath = workspacePath;
             lastBazelPath = bazelPath;
             lastCacheDir = cacheDir;
+            projectView = null;
         } finally {
             rwLock.writeLock().unlock();
         }
@@ -146,6 +148,23 @@ public final class BazelBridge {
         }
     }
 
+    public boolean buildTargets(String[] targets, String[] buildFlags) {
+        long h = snapshotHandle();
+        try {
+            return jniExecutor.submit(() -> nativeBuildTargets(h, targets, buildFlags))
+                .get(DISCOVER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted during buildTargets", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            throw new RuntimeException("buildTargets failed", cause);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("buildTargets timed out", e);
+        }
+    }
+
     public String[] computeClasspath(String targetLabel) {
         long h = snapshotHandle();
         try {
@@ -232,6 +251,22 @@ public final class BazelBridge {
 
     public String[] getCachedDependencyPackages() {
         return this.cachedDependencyPackages;
+    }
+
+    public void setProjectView(BazelProjectView view) {
+        this.projectView = view;
+    }
+
+    public BazelProjectView getProjectView() {
+        return this.projectView;
+    }
+
+    public String[] getBuildFlags() {
+        BazelProjectView view = this.projectView;
+        if (view == null || view.getBuildFlags().isEmpty()) {
+            return null;
+        }
+        return view.getBuildFlags().toArray(new String[0]);
     }
 
     public void cleanCache() {
@@ -337,6 +372,7 @@ public final class BazelBridge {
     private native String[] nativeQueryTargets(long handle, String[] scopePatterns);
     private native void nativePopulateGraph(long handle);
     private native String[] nativeRunAspectBuild(long handle, String[] targets, String[] buildFlags, String syncMode);
+    private native boolean nativeBuildTargets(long handle, String[] targets, String[] buildFlags);
     private native String[] nativeComputeClasspath(long handle, String targetLabel, String[] buildFlags);
     private native String[] nativeComputeClasspathMerged(long handle, String[] labels);
     private native int nativeGetSyncState(long handle);

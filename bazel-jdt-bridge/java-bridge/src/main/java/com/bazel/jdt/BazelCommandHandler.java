@@ -3,6 +3,7 @@ package com.bazel.jdt;
 import java.util.List;
 
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
@@ -34,6 +35,10 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 return handleCreateProjectForPackage(arguments, monitor);
             case "bazel-jdt.waitForIndexesReady":
                 return handleWaitForIndexesReady();
+            case "bazel-jdt.buildTarget":
+                return handleBuildTarget(arguments);
+            case "bazel-jdt.setActiveDebugProject":
+                return handleSetActiveDebugProject(arguments);
             default:
                 return null;
         }
@@ -59,13 +64,9 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 }
             }
 
-            String[] buildFlags = null;
-            if (arguments.size() > 4 && arguments.get(4) instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<String> flags = (List<String>) arguments.get(4);
-                if (!flags.isEmpty()) {
-                    buildFlags = flags.toArray(new String[0]);
-                }
+            BazelProjectView projectView = BazelProjectView.parse(new java.io.File(workspacePath));
+            if (projectView != null) {
+                bridge.setProjectView(projectView);
             }
 
             if (arguments.size() > 5 && arguments.get(5) instanceof String) {
@@ -89,7 +90,7 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                     "Sync mode set to: " + syncMode));
             }
 
-            String[] targets = bridge.discoverTargets(scopePatterns, buildFlags);
+            String[] targets = bridge.discoverTargets(scopePatterns, bridge.getBuildFlags());
             BazelClasspathManager.refreshClasspath();
             return null;
         } catch (Exception e) {
@@ -167,6 +168,62 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
                 "waitForIndexesReady failed: " + e.getMessage()));
             return false;
         }
+    }
+
+    private Object handleBuildTarget(List<Object> arguments) {
+        try {
+            if (arguments.isEmpty() || !(arguments.get(0) instanceof String)) {
+                throw new IllegalArgumentException("Project name required");
+            }
+            String projectName = (String) arguments.get(0);
+
+            IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(projectName);
+            if (!project.exists()) {
+                throw new IllegalArgumentException("Project not found: " + projectName);
+            }
+
+            List<String> targets = TargetProjectMapping.readTargets(project);
+            if (targets.isEmpty()) {
+                throw new IllegalStateException("No Bazel targets for project: " + projectName);
+            }
+
+            BazelBridge bridge = BazelBridge.getInstance();
+            if (!bridge.isInitialized()) {
+                throw new IllegalStateException(
+                    "Bazel project not imported yet. Import the project first.");
+            }
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Pre-debug build for " + projectName + ": " + targets));
+
+            boolean buildSuccess = bridge.buildTargets(
+                targets.toArray(new String[0]), bridge.getBuildFlags());
+            if (!buildSuccess) {
+                String msg = "Bazel build failed for targets: " + targets
+                    + " (project: " + projectName + ")";
+                LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt", msg));
+                throw new RuntimeException(msg);
+            }
+
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Pre-debug build complete for " + projectName));
+
+            BazelRuntimeClasspathEntryResolver.clearCacheForProject(projectName);
+            BazelClasspathContainer.resetWarnings();
+            BazelClasspathManager.setMergedClasspathContainer(project, false);
+
+            return null;
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
+                "Pre-debug build failed", e));
+            throw new RuntimeException("Pre-debug build failed: " + e.getMessage(), e);
+        }
+    }
+
+    private Object handleSetActiveDebugProject(List<Object> arguments) {
+        if (!arguments.isEmpty() && arguments.get(0) instanceof String) {
+            BazelRuntimeClasspathEntryResolver.setActiveDebugProject((String) arguments.get(0));
+        }
+        return null;
     }
 
     private Object handleCreateProjectForPackage(List<Object> arguments, IProgressMonitor monitor) {
