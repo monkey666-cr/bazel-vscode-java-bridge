@@ -856,14 +856,26 @@ fn build_resolved_jars(
                     .map(|f| f.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 let lookup_name = fname.strip_prefix("processed_").unwrap_or(&fname);
-                runtime_jar_by_filename
+                let matched = runtime_jar_by_filename
                     .get(lookup_name)
                     .and_then(|opt| opt.clone())
                     .or_else(|| {
                         runtime_jar_by_filename
                             .get(&fname)
                             .and_then(|opt| opt.clone())
-                    })
+                    });
+
+                if let Some(ref rt) = matched {
+                    if is_header_jar(rt) {
+                        resolve_original_jar_path(jar_path, workspace_root).or(matched)
+                    } else {
+                        matched
+                    }
+                } else if is_header_jar(jar_path) {
+                    resolve_original_jar_path(jar_path, workspace_root)
+                } else {
+                    matched
+                }
             };
 
             ResolvedJar {
@@ -1021,6 +1033,55 @@ pub(crate) fn infer_source_attachment(
 impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Resolve a `processed_` header JAR path to the original full JAR in Bazel's execroot.
+///
+/// Transforms:
+///   `<workspace>/bazel-out/<config>/bin/external/<repo>/processed_<name>.jar`
+/// → `<execroot>/external/<repo>/<name>.jar`
+///
+/// Returns `None` if:
+/// - The path is not under `bazel-out/<config>/bin/external/`
+/// - The filename doesn't start with `processed_`
+/// - The execroot symlink can't be resolved
+/// - The original JAR doesn't exist on disk
+fn resolve_original_jar_path(
+    processed_path: &str,
+    workspace_root: &std::path::Path,
+) -> Option<String> {
+    let relative = if processed_path.contains("/bin/external/") {
+        let idx = processed_path.find("/bin/external/")?;
+        processed_path[idx + 5..].to_string()
+    } else {
+        return None;
+    };
+
+    let path = std::path::Path::new(&relative);
+    let filename = path.file_name()?.to_string_lossy();
+    let original_filename = filename.strip_prefix("processed_")?;
+    let original_relative = if let Some(parent) = path.parent() {
+        format!("{}/{}", parent.to_string_lossy(), original_filename)
+    } else {
+        original_filename.to_string()
+    };
+
+    let bazel_out = workspace_root.join("bazel-out");
+    let resolved = std::fs::canonicalize(&bazel_out).ok()?;
+    let execroot = resolved.parent()?;
+
+    let candidate = execroot.join(&original_relative);
+    if candidate.exists() {
+        let result = candidate.to_string_lossy().into_owned();
+        log::info!(
+            "[bazel-jdt] Resolved processed header JAR to original: '{}' -> '{}'",
+            processed_path,
+            result
+        );
+        Some(result)
+    } else {
+        None
     }
 }
 
@@ -1702,6 +1763,105 @@ mod tests {
         assert!(
             !is_header_jar("/path/to/my-processed-lib.jar"),
             "processed in middle of filename should not be falsely detected"
+        );
+    }
+
+    #[test]
+    fn test_resolve_original_jar_path_standard() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let execroot = tmp.path().join("execroot");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&execroot).unwrap();
+
+        let real_bazel_out = execroot.join("bazel-out");
+        std::fs::create_dir_all(&real_bazel_out).unwrap();
+        std::os::unix::fs::symlink(&real_bazel_out, workspace.join("bazel-out")).unwrap();
+
+        let jar_dir = execroot.join("external/rules_jvm_external++maven+maven/v1/https/repo1.maven.org/maven2/com/google/guava/guava/33.4.0-jre");
+        std::fs::create_dir_all(&jar_dir).unwrap();
+        std::fs::write(jar_dir.join("guava-33.4.0-jre.jar"), b"original").unwrap();
+
+        let processed_path = format!(
+            "{}/bazel-out/k8-fastbuild/bin/external/rules_jvm_external++maven+maven/v1/https/repo1.maven.org/maven2/com/google/guava/guava/33.4.0-jre/processed_guava-33.4.0-jre.jar",
+            workspace.display()
+        );
+
+        let result = resolve_original_jar_path(&processed_path, &workspace);
+        assert!(result.is_some(), "Should resolve to original JAR");
+        let resolved = result.unwrap();
+        assert!(
+            resolved.contains("guava-33.4.0-jre.jar"),
+            "Should contain original filename"
+        );
+        assert!(
+            !resolved.contains("processed_"),
+            "Should not contain processed_ prefix"
+        );
+    }
+
+    #[test]
+    fn test_resolve_original_jar_path_not_bazel_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = resolve_original_jar_path("/some/random/path/processed_foo.jar", tmp.path());
+        assert!(result.is_none(), "Non bazel-out path should return None");
+    }
+
+    #[test]
+    fn test_resolve_original_jar_path_no_bin_external() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = resolve_original_jar_path(
+            &format!(
+                "{}/bazel-out/k8-fastbuild/bin/lib/processed_foo.jar",
+                tmp.path().display()
+            ),
+            tmp.path(),
+        );
+        assert!(
+            result.is_none(),
+            "Path without /bin/external/ should return None"
+        );
+    }
+
+    #[test]
+    fn test_resolve_original_jar_path_not_processed_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let result = resolve_original_jar_path(
+            &format!(
+                "{}/bazel-out/k8-fastbuild/bin/external/maven/guava.jar",
+                workspace.display()
+            ),
+            &workspace,
+        );
+        assert!(
+            result.is_none(),
+            "Non-processed filename should return None"
+        );
+    }
+
+    #[test]
+    fn test_resolve_original_jar_path_original_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let execroot = tmp.path().join("execroot");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&execroot).unwrap();
+        let real_bazel_out = execroot.join("bazel-out");
+        std::fs::create_dir_all(&real_bazel_out).unwrap();
+        std::os::unix::fs::symlink(&real_bazel_out, workspace.join("bazel-out")).unwrap();
+
+        let result = resolve_original_jar_path(
+            &format!(
+                "{}/bazel-out/k8-fastbuild/bin/external/maven/processed_foo.jar",
+                workspace.display()
+            ),
+            &workspace,
+        );
+        assert!(
+            result.is_none(),
+            "Should return None when original JAR doesn't exist"
         );
     }
 
