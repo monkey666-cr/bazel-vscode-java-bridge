@@ -12,8 +12,10 @@ Import-Package: \
     org.eclipse.core.runtime.jobs, \
     org.eclipse.jdt.launching, \
     org.osgi.framework, \
+    org.osgi.framework.hooks.weaving, \
     *
 Export-Package: com.bazel.jdt
+Private-Package: org.objectweb.asm,org.objectweb.asm.signature
 Bundle-NativeCode: \
     native/linux-x86_64/libbazel_jdt_core.so; osname=Linux; processor=x86_64, \
     native/linux-aarch64/libbazel_jdt_core.so; osname=Linux; processor=aarch64, \

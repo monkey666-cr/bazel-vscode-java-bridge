@@ -19,6 +19,8 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceRegistration;
+import org.osgi.framework.hooks.weaving.WeavingHook;
 
 public class BazelActivator implements BundleActivator {
     private static final ILog LOG = Platform.getLog(BazelActivator.class);
@@ -26,11 +28,15 @@ public class BazelActivator implements BundleActivator {
         Pattern.compile(".+_[0-9a-f]{4,}$");
 
     private IResourceChangeListener invisibleProjectListener;
+    private ServiceRegistration<WeavingHook> weavingHookRegistration;
 
     @Override
     public void start(BundleContext context) throws Exception {
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Bazel JDT Bridge bundle starting"));
+
+        weavingHookRegistration = context.registerService(
+            WeavingHook.class, new JDTUtilsPatcher(), null);
 
         invisibleProjectListener = this::checkForInvisibleProjects;
         ResourcesPlugin.getWorkspace().addResourceChangeListener(
@@ -39,6 +45,10 @@ public class BazelActivator implements BundleActivator {
 
     @Override
     public void stop(BundleContext context) throws Exception {
+        if (weavingHookRegistration != null) {
+            weavingHookRegistration.unregister();
+            weavingHookRegistration = null;
+        }
         if (invisibleProjectListener != null) {
             ResourcesPlugin.getWorkspace().removeResourceChangeListener(invisibleProjectListener);
             invisibleProjectListener = null;
