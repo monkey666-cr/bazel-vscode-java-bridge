@@ -29,8 +29,6 @@ public class BazelActivator implements BundleActivator {
 
     private IResourceChangeListener invisibleProjectListener;
     private ServiceRegistration<WeavingHook> weavingHookRegistration;
-    private ServiceRegistration<WeavingHook> debugPatcherRegistration;
-    private ServiceRegistration<WeavingHook> jdkLookupPatcherRegistration;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -39,12 +37,6 @@ public class BazelActivator implements BundleActivator {
 
         weavingHookRegistration = context.registerService(
             WeavingHook.class, new JDTUtilsPatcher(), null);
-
-        debugPatcherRegistration = context.registerService(
-            WeavingHook.class, new JavaDebugSourceLookupPatcher(), null);
-
-        jdkLookupPatcherRegistration = context.registerService(
-            WeavingHook.class, new JdkSourceLookupPatcher(), null);
 
         invisibleProjectListener = this::checkForInvisibleProjects;
         ResourcesPlugin.getWorkspace().addResourceChangeListener(
@@ -56,14 +48,6 @@ public class BazelActivator implements BundleActivator {
         if (weavingHookRegistration != null) {
             weavingHookRegistration.unregister();
             weavingHookRegistration = null;
-        }
-        if (debugPatcherRegistration != null) {
-            debugPatcherRegistration.unregister();
-            debugPatcherRegistration = null;
-        }
-        if (jdkLookupPatcherRegistration != null) {
-            jdkLookupPatcherRegistration.unregister();
-            jdkLookupPatcherRegistration = null;
         }
         if (invisibleProjectListener != null) {
             ResourcesPlugin.getWorkspace().removeResourceChangeListener(invisibleProjectListener);
