@@ -414,7 +414,11 @@ pub extern "system" fn Java_com_bazel_jdt_BazelBridge_nativeIsTestTarget(
     let graph = state.graph.lock().unwrap_or_else(|e| e.into_inner());
     let is_test = graph.get_target_kind(&label) == bazel_graph::TargetKind::JavaTest;
     drop(graph);
-    if is_test { 1 } else { 0 }
+    if is_test {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
