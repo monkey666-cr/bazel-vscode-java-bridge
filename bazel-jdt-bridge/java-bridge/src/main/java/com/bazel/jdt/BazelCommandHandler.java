@@ -98,11 +98,83 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
             }
 
             String[] targets = bridge.discoverTargets(scopePatterns, bridge.getBuildFlags());
-            BazelClasspathManager.refreshClasspath();
+
+            java.util.List<String> newTargetLabels = createProjectsForNewTargets(workspacePath, targets, bridge);
+
+            if (!newTargetLabels.isEmpty()) {
+                BazelClasspathManager.refreshClasspathForTargets(newTargetLabels);
+            } else {
+                BazelClasspathManager.refreshClasspath();
+            }
             return null;
         } catch (Exception e) {
             LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt", "Bazel import failed", e));
             throw new RuntimeException("Bazel import failed: " + e.getMessage(), e);
+        }
+    }
+
+    private java.util.List<String> createProjectsForNewTargets(String workspacePath, String[] targets, BazelBridge bridge) {
+        java.util.Set<String> existingTargetLabels = getExistingTargetLabels();
+        java.util.Set<String> newTargets = findNewTargets(targets, existingTargetLabels);
+
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "Discovered " + newTargets.size() + " new targets (existing: " + existingTargetLabels.size() + ")"));
+
+        if (!newTargets.isEmpty()) {
+            createProjectsForTargets(workspacePath, newTargets, bridge);
+        }
+        return new java.util.ArrayList<>(newTargets);
+    }
+
+    private java.util.Set<String> getExistingTargetLabels() {
+        java.util.Set<String> existingTargetLabels = new java.util.HashSet<>();
+        org.eclipse.core.resources.IWorkspace workspace =
+            org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
+        for (org.eclipse.core.resources.IProject project : workspace.getRoot().getProjects()) {
+            if (!project.isOpen()) continue;
+            try {
+                if (!project.hasNature(BazelNature.NATURE_ID)) continue;
+            } catch (org.eclipse.core.runtime.CoreException e) {
+                continue;
+            }
+            List<String> labels = TargetProjectMapping.readTargets(project);
+            existingTargetLabels.addAll(labels);
+        }
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "Found " + existingTargetLabels.size() + " existing targets in " + workspace.getRoot().getProjects().length + " projects"));
+        return existingTargetLabels;
+    }
+
+    private java.util.Set<String> findNewTargets(String[] targets, java.util.Set<String> existingTargetLabels) {
+        java.util.Set<String> newTargets = new java.util.HashSet<>();
+        if (targets != null) {
+            for (String target : targets) {
+                if (!existingTargetLabels.contains(target)) {
+                    newTargets.add(target);
+                }
+            }
+        }
+        return newTargets;
+    }
+
+    private void createProjectsForTargets(String workspacePath, java.util.Set<String> newTargets, BazelBridge bridge) {
+        LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+            "Creating projects for " + newTargets.size() + " new targets: " + newTargets));
+        for (String targetLabel : newTargets) {
+            try {
+                String packagePath = LabelUtils.extractPackageName(targetLabel);
+                boolean isTestTarget = bridge.isTestTarget(targetLabel);
+                org.eclipse.core.resources.IProject project =
+                    BazelProjectCreator.createProjectForPackage(
+                        workspacePath, packagePath, targetLabel, null, true, isTestTarget);
+                if (project != null) {
+                    LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                        "Created project for target: " + targetLabel));
+                }
+            } catch (Exception e) {
+                LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                    "Failed to create project for target: " + targetLabel, e));
+            }
         }
     }
 
