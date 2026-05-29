@@ -1,0 +1,26 @@
+load("@rules_java//java:defs.bzl", "java_test")
+
+java_test(
+    name = "config_service_powermock_test",
+    srcs = ["src/test/java/com/example/lib/ConfigServicePowerMockTest.java"],
+    deps = [
+        "//lib:config_service",
+        "@maven//:junit_junit",
+        "@maven//:org_powermock_powermock_module_junit4",
+        "@maven//:org_powermock_powermock_api_mockito2",
+        "@maven//:org_mockito_mockito_core",
+    ],
+    test_class = "com.example.lib.ConfigServicePowerMockTest",
+    visibility = ["//visibility:public"],
+)
+
+java_test(
+    name = "config_service_test",
+    srcs = ["src/test/java/com/example/lib/ConfigServiceTest.java"],
+    deps = [
+        "//lib:config_service",
+        "@maven//:junit_junit",
+    ],
+    test_class = "com.example.lib.ConfigServiceTest",
+    visibility = ["//visibility:public"],
+)

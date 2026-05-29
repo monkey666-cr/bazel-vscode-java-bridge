@@ -1,0 +1,16 @@
+workspace(name = "powermock_repro_project")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "rules_java",
+    sha256 = "b9c5ac9dfa76ab8e770ff8c979388878bf818afc850a8056fd7726a215354bf0",
+    strip_prefix = "rules_java-9.6.1",
+    url = "https://github.com/bazelbuild/rules_java/archive/refs/tags/9.6.1.tar.gz",
+)
+
+load("@rules_java//java:repositories.bzl", "rules_java_dependencies", "rules_java_toolchains")
+
+rules_java_dependencies()
+
+rules_java_toolchains()

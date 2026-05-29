@@ -13,6 +13,7 @@ Bazel is a high-performance build system, but it has significant shortcomings in
 - **Dependency Resolution**: Build a complete Java dependency graph through Bazel CLI and BUILD file parsing
 - **Real-time Sync**: Monitor BUILD file changes, automatically trigger incremental sync, and keep classpath consistent with the workspace
 - **Smart Caching**: Persistent KV storage based on redb, distinguishing between fast and slow paths to reduce unnecessary Bazel invocations
+- **PowerMock Support**: Automatic bytecode-level fix prevents PowerMock test methods from disappearing in Test Explorer after running individual tests
 
 **Project Directory Structure:**
 
@@ -232,6 +233,7 @@ TEST_WORKSPACE=multi-module-project npm run e2e
 | `simple-java-project` | Extension activation, basic completion, Greeter class resolution |
 | `maven-deps-project` | External dependency completion (Guava, JUnit) |
 | `multi-module-project` | Transitive dependency exports, resources |
+| `powermock-repro-project` | PowerMock test tree preservation fix |
 
 **Layered Testing Strategy:**
 

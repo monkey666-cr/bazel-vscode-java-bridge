@@ -9,6 +9,7 @@ Test projects for validating the Bazel JDT Bridge VS Code extension.
 | `simple-java-project` | Minimal self-contained | None | `java_library`, `java_binary`, `java_test` |
 | `maven-deps-project` | Guava + JUnit via `maven_install` | Guava, JUnit, Hamcrest | `java_library`, `java_binary`, `java_test` |
 | `multi-module-project` | Layered architecture with exports | Guava, JUnit, Hamcrest | `java_library`, `java_binary`, `java_test` + `exports`, `resources` |
+| `powermock-repro-project` | PowerMock test tree fix validation | JUnit, PowerMock, Mockito | `java_library`, `java_test` + `@RunWith(PowerMockRunner)` |
 
 ## Usage
 
@@ -78,3 +79,9 @@ bazel run //server:server
 - `resources` attribute (`config.properties`)
 - Multiple `java_test` targets in one package
 - Complex dependency graph exercising BFS traversal
+
+### powermock-repro-project
+- `@RunWith(PowerMockRunner.class)` with `@PrepareForTest` annotations
+- Validates the PowerMock test tree preservation fix (no test disappearance)
+- Includes a standard JUnit4 test for regression checking
+- Static mocking via `PowerMockito.mockStatic()`

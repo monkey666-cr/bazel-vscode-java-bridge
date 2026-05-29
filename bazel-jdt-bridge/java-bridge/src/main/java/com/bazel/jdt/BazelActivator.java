@@ -29,6 +29,7 @@ public class BazelActivator implements BundleActivator {
 
     private IResourceChangeListener invisibleProjectListener;
     private ServiceRegistration<WeavingHook> weavingHookRegistration;
+    private ServiceRegistration<WeavingHook> powerMockPatcherRegistration;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -37,6 +38,9 @@ public class BazelActivator implements BundleActivator {
 
         weavingHookRegistration = context.registerService(
             WeavingHook.class, new JDTUtilsPatcher(), null);
+
+        powerMockPatcherRegistration = context.registerService(
+            WeavingHook.class, new PowerMockRunnerPatcher(), null);
 
         invisibleProjectListener = this::checkForInvisibleProjects;
         ResourcesPlugin.getWorkspace().addResourceChangeListener(
@@ -48,6 +52,10 @@ public class BazelActivator implements BundleActivator {
         if (weavingHookRegistration != null) {
             weavingHookRegistration.unregister();
             weavingHookRegistration = null;
+        }
+        if (powerMockPatcherRegistration != null) {
+            powerMockPatcherRegistration.unregister();
+            powerMockPatcherRegistration = null;
         }
         if (invisibleProjectListener != null) {
             ResourcesPlugin.getWorkspace().removeResourceChangeListener(invisibleProjectListener);
