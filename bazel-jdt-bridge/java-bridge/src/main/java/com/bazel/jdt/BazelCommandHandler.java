@@ -1,9 +1,14 @@
 package com.bazel.jdt;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
@@ -11,6 +16,7 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jdt.ls.core.internal.IDelegateCommandHandler;
 import org.eclipse.jdt.ls.core.internal.JobHelpers;
+
 
 public class BazelCommandHandler implements IDelegateCommandHandler {
     private static final ILog LOG = Platform.getLog(BazelCommandHandler.class);
@@ -113,9 +119,9 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
         }
     }
 
-    private java.util.List<String> createProjectsForNewTargets(String workspacePath, String[] targets, BazelBridge bridge) {
-        java.util.Set<String> existingTargetLabels = getExistingTargetLabels();
-        java.util.Set<String> newTargets = findNewTargets(targets, existingTargetLabels);
+    private List<String> createProjectsForNewTargets(String workspacePath, String[] targets, BazelBridge bridge) {
+        Set<String> existingTargetLabels = getExistingTargetLabels();
+        Set<String> newTargets = findNewTargets(targets, existingTargetLabels);
 
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Discovered " + newTargets.size() + " new targets (existing: " + existingTargetLabels.size() + ")"));
@@ -123,18 +129,17 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
         if (!newTargets.isEmpty()) {
             createProjectsForTargets(workspacePath, newTargets, bridge);
         }
-        return new java.util.ArrayList<>(newTargets);
+        return new ArrayList<>(newTargets);
     }
 
-    private java.util.Set<String> getExistingTargetLabels() {
-        java.util.Set<String> existingTargetLabels = new java.util.HashSet<>();
-        org.eclipse.core.resources.IWorkspace workspace =
-            org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
-        for (org.eclipse.core.resources.IProject project : workspace.getRoot().getProjects()) {
+    private Set<String> getExistingTargetLabels() {
+        Set<String> existingTargetLabels = new HashSet<>();
+        IWorkspace workspace = ResourcesPlugin.getWorkspace();
+        for (IProject project : workspace.getRoot().getProjects()) {
             if (!project.isOpen()) continue;
             try {
                 if (!project.hasNature(BazelNature.NATURE_ID)) continue;
-            } catch (org.eclipse.core.runtime.CoreException e) {
+            } catch (CoreException e) {
                 continue;
             }
             List<String> labels = TargetProjectMapping.readTargets(project);
@@ -145,8 +150,8 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
         return existingTargetLabels;
     }
 
-    private java.util.Set<String> findNewTargets(String[] targets, java.util.Set<String> existingTargetLabels) {
-        java.util.Set<String> newTargets = new java.util.HashSet<>();
+    private Set<String> findNewTargets(String[] targets, Set<String> existingTargetLabels) {
+        Set<String> newTargets = new HashSet<>();
         if (targets != null) {
             for (String target : targets) {
                 if (!existingTargetLabels.contains(target)) {
@@ -157,14 +162,14 @@ public class BazelCommandHandler implements IDelegateCommandHandler {
         return newTargets;
     }
 
-    private void createProjectsForTargets(String workspacePath, java.util.Set<String> newTargets, BazelBridge bridge) {
+    private void createProjectsForTargets(String workspacePath, Set<String> newTargets, BazelBridge bridge) {
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Creating projects for " + newTargets.size() + " new targets: " + newTargets));
         for (String targetLabel : newTargets) {
             try {
                 String packagePath = LabelUtils.extractPackageName(targetLabel);
                 boolean isTestTarget = bridge.isTestTarget(targetLabel);
-                org.eclipse.core.resources.IProject project =
+                IProject project =
                     BazelProjectCreator.createProjectForPackage(
                         workspacePath, packagePath, targetLabel, null, true, isTestTarget);
                 if (project != null) {
