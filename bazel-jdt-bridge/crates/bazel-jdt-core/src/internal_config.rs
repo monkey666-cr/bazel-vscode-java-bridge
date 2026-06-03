@@ -3,7 +3,7 @@ const CONFIG_JSON: &str = include_str!("../../../config.json");
 fn extract_json_str<'a>(json: &'a str, key: &str) -> Option<&'a str> {
     let needle = format!("\"{}\"", key);
     let after_key = json.split(&needle).nth(1)?;
-    let after_colon = after_key.splitn(2, ':').nth(1)?.trim();
+    let after_colon = after_key.split_once(':')?.1.trim();
     let after_quote = after_colon.strip_prefix('"')?;
     let value = after_quote.split('"').next()?;
     Some(value)
