@@ -52,7 +52,11 @@ impl BuildFileWatcher {
         let bazel_jdt_dir = workspace_root.join(crate::internal_config::base_dir());
         if bazel_jdt_dir.is_dir() {
             if let Err(e) = debouncer.watch(&bazel_jdt_dir, RecursiveMode::NonRecursive) {
-                log::warn!("Failed to watch {} directory: {}", crate::internal_config::base_dir(), e);
+                log::warn!(
+                    "Failed to watch {} directory: {}",
+                    crate::internal_config::base_dir(),
+                    e
+                );
             }
         }
 
@@ -258,7 +262,9 @@ mod tests {
         assert!(is_watched_file(Path::new("/some/path/BUILD")));
         assert!(is_watched_file(Path::new("/some/path/BUILD.bazel")));
         assert!(is_watched_file(Path::new(".bazel-jdt/.bazelproject")));
-        assert!(is_watched_file(Path::new("/some/path/.bazel-jdt/.bazelproject")));
+        assert!(is_watched_file(Path::new(
+            "/some/path/.bazel-jdt/.bazelproject"
+        )));
     }
 
     #[test]
@@ -277,7 +283,9 @@ mod tests {
     #[test]
     fn test_is_bazelproject_file() {
         assert!(is_bazelproject_file(Path::new(".bazel-jdt/.bazelproject")));
-        assert!(is_bazelproject_file(Path::new("/workspace/.bazel-jdt/.bazelproject")));
+        assert!(is_bazelproject_file(Path::new(
+            "/workspace/.bazel-jdt/.bazelproject"
+        )));
         assert!(!is_bazelproject_file(Path::new(".bazelproject")));
         assert!(!is_bazelproject_file(Path::new("/workspace/.bazelproject")));
         assert!(!is_bazelproject_file(Path::new("BUILD")));

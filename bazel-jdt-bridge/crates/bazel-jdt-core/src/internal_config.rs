@@ -18,7 +18,11 @@ pub fn config_file() -> &'static str {
 }
 
 pub fn aspects_dir() -> String {
-    format!("{}/{}", base_dir(), extract_json_str(CONFIG_JSON, "aspectsDir").unwrap_or("aspects"))
+    format!(
+        "{}/{}",
+        base_dir(),
+        extract_json_str(CONFIG_JSON, "aspectsDir").unwrap_or("aspects")
+    )
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 pub mod aspect;
-pub mod internal_config;
 pub mod change_detector;
+pub mod internal_config;
 pub mod jni_exports;
 pub mod state;
 pub mod watcher;

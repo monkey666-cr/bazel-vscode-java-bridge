@@ -167,7 +167,11 @@ pub fn check_bazelignore(workspace_root: &Path) -> Option<String> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if line == base_dir || line == format!("{}/", base_dir) || line == format!("{}/**", base_dir) || line == "/" {
+        if line == base_dir
+            || line == format!("{}/", base_dir)
+            || line == format!("{}/**", base_dir)
+            || line == "/"
+        {
             return Some(format!(
                 "Aspect directory '{}' is covered by .bazelignore \
                  (pattern: '{}') — aspects may not be found by Bazel. \
@@ -206,7 +210,10 @@ mod tests {
         let label = extract_if_needed(tmp.path(), "bazel").unwrap();
 
         assert!(label.contains("intellij_info_bundled.bzl%intellij_info_aspect"));
-        assert!(label.starts_with(&format!("//{}:intellij_info_bundled.bzl", aspect_dir_name())));
+        assert!(label.starts_with(&format!(
+            "//{}:intellij_info_bundled.bzl",
+            aspect_dir_name()
+        )));
 
         let aspect_dir = tmp.path().join(aspect_dir_name());
         assert!(aspect_dir.join("BUILD").exists());
