@@ -24,7 +24,7 @@ public class BazelBuildSupport implements IBuildSupport {
         "**/BUILD.bazel",
         "**/WORKSPACE",
         "**/WORKSPACE.bazel",
-        "**/.bazelproject"
+        "**/" + InternalConfig.bazelprojectRelPath()
     );
 
     private static final ConcurrentLinkedQueue<String> pendingChangedFiles = new ConcurrentLinkedQueue<>();

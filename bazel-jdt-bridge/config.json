@@ -1,0 +1,6 @@
+{
+  "baseDir": ".bazel-jdt",
+  "configFile": ".bazelproject",
+  "projectsDir": "projects",
+  "aspectsDir": "aspects"
+}

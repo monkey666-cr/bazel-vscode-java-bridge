@@ -20,7 +20,7 @@ import org.eclipse.core.runtime.Status;
  */
 public final class BazelProjectView {
     private static final ILog LOG = Platform.getLog(BazelProjectView.class);
-    private static final String BAZELPROJECT_FILE = ".bazelproject";
+    private static final String BAZELPROJECT_FILE = InternalConfig.bazelprojectRelPath();
 
     private final List<String> directories = new ArrayList<>();
     private final List<String> targets = new ArrayList<>();

@@ -6,6 +6,9 @@ import { BazelDebugConfigurationProvider } from './debugAdapter';
 import { createStatusBar } from './statusBar';
 import { getConfig } from './config';
 import { parseBazelprojectFile, resolveScopePatterns } from './bazelproject';
+import internalConfig from '../../config.json';
+
+const BAZELPROJECT_REL_PATH = path.join(internalConfig.baseDir, internalConfig.configFile);
 
 export async function activate(context: vscode.ExtensionContext) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -19,7 +22,7 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    const bazelprojectPath = path.join(workspaceRoot, '.bazelproject');
+    const bazelprojectPath = path.join(workspaceRoot, BAZELPROJECT_REL_PATH);
     const hasBazelproject = fs.existsSync(bazelprojectPath);
 
     if (hasBazelproject) {
@@ -60,7 +63,7 @@ function activateFull(context: vscode.ExtensionContext, workspaceRoot: string) {
 
     let dependencyPackageCache: string[] = [];
 
-    const bazelprojectPattern = new vscode.RelativePattern(workspaceRoot, '.bazelproject');
+    const bazelprojectPattern = new vscode.RelativePattern(workspaceRoot, BAZELPROJECT_REL_PATH);
     const watcher = vscode.workspace.createFileSystemWatcher(bazelprojectPattern);
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
     let wizardActive = false;
@@ -84,7 +87,7 @@ function activateFull(context: vscode.ExtensionContext, workspaceRoot: string) {
             }
 
             const config = getConfig();
-            const viewConfig = parseBazelprojectFile(path.join(workspaceRoot, '.bazelproject'));
+            const viewConfig = parseBazelprojectFile(path.join(workspaceRoot, BAZELPROJECT_REL_PATH));
             const patterns = viewConfig ? resolveScopePatterns(viewConfig) : [];
             const buildFlags = viewConfig ? viewConfig.buildFlags : [];
             const bazelPath = viewConfig?.bazelBinary || config.bazelPath;
@@ -171,7 +174,7 @@ function activateFull(context: vscode.ExtensionContext, workspaceRoot: string) {
 }
 
 function setupCreationOnlyWatcher(context: vscode.ExtensionContext, workspaceRoot: string) {
-    const pattern = new vscode.RelativePattern(workspaceRoot, '.bazelproject');
+    const pattern = new vscode.RelativePattern(workspaceRoot, BAZELPROJECT_REL_PATH);
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     context.subscriptions.push(

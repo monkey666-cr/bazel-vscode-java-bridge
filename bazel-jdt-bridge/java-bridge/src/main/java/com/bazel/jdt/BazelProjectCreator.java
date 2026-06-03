@@ -55,7 +55,7 @@ public final class BazelProjectCreator {
             IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
             IProject project = workspaceRoot.getProject(projectName);
 
-            File bazelProjectDir = new File(workspacePath, ".bazel-projects/" + projectName);
+            File bazelProjectDir = new File(workspacePath, InternalConfig.projectsDirRelPath() + "/" + projectName);
             IPath expectedLocation = new Path(bazelProjectDir.getAbsolutePath());
 
             if (project.exists()) {
@@ -66,17 +66,17 @@ public final class BazelProjectCreator {
                         TargetProjectMapping.appendTargets(project, Collections.singletonList(targetLabel));
                     }
                     LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                        "Project '" + projectName + "' already at .bazel-projects/, skipping rebuild"));
+                        "Project '" + projectName + "' already at " + InternalConfig.projectsDirRelPath() + "/, skipping rebuild"));
                     return project;
                 }
                 LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                    "Migrating project '" + projectName + "' to .bazel-projects/ location"));
+                    "Migrating project '" + projectName + "' to " + InternalConfig.projectsDirRelPath() + "/ location"));
                 project.delete(false, true, monitor);
             }
 
             if (!bazelProjectDir.exists() && !bazelProjectDir.mkdirs()) {
                 LOG.log(new Status(IStatus.ERROR, "com.bazel.jdt",
-                    "Failed to create .bazel-projects directory: " + bazelProjectDir.getAbsolutePath()));
+                    "Failed to create projects directory: " + bazelProjectDir.getAbsolutePath()));
                 return null;
             }
 

@@ -10,7 +10,9 @@ pub enum AspectError {
     Utf8Error(#[from] std::string::FromUtf8Error),
 }
 
-const ASPECT_DIR_NAME: &str = ".bazel-jdt/aspects";
+fn aspect_dir_name() -> String {
+    crate::internal_config::aspects_dir()
+}
 const VERSION_FILE: &str = ".version";
 
 const ASPECT_BUILD: &str = "";
@@ -113,7 +115,8 @@ pub fn version_hash(bazel_major: u32) -> String {
 /// what's already on disk. Returns the workspace-relative Bazel aspect label.
 pub fn extract_if_needed(workspace_root: &Path, bazel_path: &str) -> Result<String, AspectError> {
     let bazel_major = detect_bazel_major_version(bazel_path);
-    let aspect_dir = workspace_root.join(ASPECT_DIR_NAME);
+    let dir_name = aspect_dir_name();
+    let aspect_dir = workspace_root.join(&dir_name);
     let version_path = aspect_dir.join(VERSION_FILE);
     let current_hash = version_hash(bazel_major);
 
@@ -146,7 +149,7 @@ pub fn extract_if_needed(workspace_root: &Path, bazel_path: &str) -> Result<Stri
 
     let label = format!(
         "//{}:intellij_info_bundled.bzl%intellij_info_aspect",
-        ASPECT_DIR_NAME
+        dir_name
     );
     Ok(label)
 }
@@ -156,18 +159,20 @@ pub fn extract_if_needed(workspace_root: &Path, bazel_path: &str) -> Result<Stri
 pub fn check_bazelignore(workspace_root: &Path) -> Option<String> {
     let bazelignore_path = workspace_root.join(".bazelignore");
     let contents = fs::read_to_string(&bazelignore_path).ok()?;
+    let base_dir = crate::internal_config::base_dir();
+    let dir_name = aspect_dir_name();
 
     for line in contents.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if line == ".bazel-jdt" || line == ".bazel-jdt/" || line == ".bazel-jdt/**" || line == "/" {
+        if line == base_dir || line == format!("{}/", base_dir) || line == format!("{}/**", base_dir) || line == "/" {
             return Some(format!(
                 "Aspect directory '{}' is covered by .bazelignore \
                  (pattern: '{}') — aspects may not be found by Bazel. \
                  Please remove this pattern from .bazelignore.",
-                ASPECT_DIR_NAME, line
+                dir_name, line
             ));
         }
     }
@@ -201,9 +206,9 @@ mod tests {
         let label = extract_if_needed(tmp.path(), "bazel").unwrap();
 
         assert!(label.contains("intellij_info_bundled.bzl%intellij_info_aspect"));
-        assert!(label.starts_with("//.bazel-jdt/aspects:intellij_info_bundled.bzl"));
+        assert!(label.starts_with(&format!("//{}:intellij_info_bundled.bzl", aspect_dir_name())));
 
-        let aspect_dir = tmp.path().join(ASPECT_DIR_NAME);
+        let aspect_dir = tmp.path().join(aspect_dir_name());
         assert!(aspect_dir.join("BUILD").exists());
         assert!(aspect_dir.join("intellij_info_bundled.bzl").exists());
         assert!(aspect_dir.join("intellij_info_impl_bundled.bzl").exists());
@@ -223,7 +228,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         extract_if_needed(tmp.path(), "bazel").unwrap();
 
-        let version_path = tmp.path().join(ASPECT_DIR_NAME).join(VERSION_FILE);
+        let version_path = tmp.path().join(aspect_dir_name()).join(VERSION_FILE);
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         extract_if_needed(tmp.path(), "bazel").unwrap();
@@ -235,7 +240,7 @@ mod tests {
     #[test]
     fn test_extract_updates_when_version_differs() {
         let tmp = tempfile::tempdir().unwrap();
-        let aspect_dir = tmp.path().join(ASPECT_DIR_NAME);
+        let aspect_dir = tmp.path().join(aspect_dir_name());
 
         extract_if_needed(tmp.path(), "bazel").unwrap();
 

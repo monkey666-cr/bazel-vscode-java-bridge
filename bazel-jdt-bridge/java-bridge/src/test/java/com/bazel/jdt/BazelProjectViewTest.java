@@ -17,7 +17,9 @@ public class BazelProjectViewTest {
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private File writeBazelproject(String content) throws IOException {
-        File file = new File(tempFolder.getRoot(), ".bazelproject");
+        File bazelJdtDir = new File(tempFolder.getRoot(), InternalConfig.BASE_DIR);
+        bazelJdtDir.mkdirs();
+        File file = new File(bazelJdtDir, InternalConfig.CONFIG_FILE);
         try (FileWriter writer = new FileWriter(file)) {
             writer.write(content);
         }

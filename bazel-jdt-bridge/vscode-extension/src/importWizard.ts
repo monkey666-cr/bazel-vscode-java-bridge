@@ -3,6 +3,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { parseBazelprojectFile, resolveScopePatterns } from './bazelproject';
 import { getConfig } from './config';
+import internalConfig from '../../config.json';
+
+const BAZEL_JDT_DIR_REL = internalConfig.baseDir;
+const BAZELPROJECT_REL_PATH = path.join(internalConfig.baseDir, internalConfig.configFile);
 
 export interface ImportWizardResult {
     strategy: 'existing' | 'manual' | 'everything';
@@ -220,7 +224,11 @@ async function runDirectoryPicker(
     );
 
     if (saveChoice && saveChoice.label.startsWith('Yes')) {
-        const bazelprojectPath = path.join(workspaceRoot, '.bazelproject');
+        const bazelJdtDir = path.join(workspaceRoot, BAZEL_JDT_DIR_REL);
+        if (!fs.existsSync(bazelJdtDir)) {
+            fs.mkdirSync(bazelJdtDir, { recursive: true });
+        }
+        const bazelprojectPath = path.join(workspaceRoot, BAZELPROJECT_REL_PATH);
         const content = generateBazelprojectContent(options);
         vscode.commands.executeCommand('_bazel-jdt.setWizardActive', true);
         fs.writeFileSync(bazelprojectPath, content, 'utf-8');
@@ -504,12 +512,6 @@ function generateBazelprojectContent(options: BazelprojectOptions): string {
 }
 
 function findBazelprojectFile(workspaceRoot: string): string | undefined {
-    const candidates = ['.bazelproject'];
-    for (const name of candidates) {
-        const fullPath = path.join(workspaceRoot, name);
-        if (fs.existsSync(fullPath)) {
-            return fullPath;
-        }
-    }
-    return undefined;
+    const fullPath = path.join(workspaceRoot, BAZELPROJECT_REL_PATH);
+    return fs.existsSync(fullPath) ? fullPath : undefined;
 }
