@@ -2,6 +2,7 @@ package com.bazel.jdt;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 public final class InternalConfig {
     public static final String BASE_DIR;
@@ -16,11 +17,11 @@ public final class InternalConfig {
         String aspectsDir = "aspects";
         try (InputStream in = InternalConfig.class.getClassLoader().getResourceAsStream("config.json")) {
             if (in != null) {
-                String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                baseDir = extractJsonString(json, "baseDir", baseDir);
-                configFile = extractJsonString(json, "configFile", configFile);
-                projectsDir = extractJsonString(json, "projectsDir", projectsDir);
-                aspectsDir = extractJsonString(json, "aspectsDir", aspectsDir);
+                JSONObject obj = new JSONObject(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                baseDir = obj.optString("baseDir", baseDir);
+                configFile = obj.optString("configFile", configFile);
+                projectsDir = obj.optString("projectsDir", projectsDir);
+                aspectsDir = obj.optString("aspectsDir", aspectsDir);
             }
         } catch (Exception e) {
             System.err.println("[bazel-jdt] Failed to load config.json, using defaults: " + e.getMessage());
@@ -33,26 +34,11 @@ public final class InternalConfig {
 
     private InternalConfig() {}
 
-    /** Returns `<baseDir>/<configFile>` relative path. */
     public static String bazelprojectRelPath() {
         return BASE_DIR + "/" + CONFIG_FILE;
     }
 
-    /** Returns `<baseDir>/<projectsDir>` relative path. */
     public static String projectsDirRelPath() {
         return BASE_DIR + "/" + PROJECTS_DIR;
-    }
-
-    private static String extractJsonString(String json, String key, String defaultValue) {
-        String needle = "\"" + key + "\"";
-        int keyIdx = json.indexOf(needle);
-        if (keyIdx < 0) return defaultValue;
-        int colon = json.indexOf(':', keyIdx + needle.length());
-        if (colon < 0) return defaultValue;
-        int openQuote = json.indexOf('"', colon + 1);
-        if (openQuote < 0) return defaultValue;
-        int closeQuote = json.indexOf('"', openQuote + 1);
-        if (closeQuote < 0) return defaultValue;
-        return json.substring(openQuote + 1, closeQuote);
     }
 }

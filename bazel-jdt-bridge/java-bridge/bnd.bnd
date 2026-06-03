@@ -15,7 +15,7 @@ Import-Package: \
     org.osgi.framework.hooks.weaving, \
     *
 Export-Package: com.bazel.jdt
-Private-Package: org.objectweb.asm,org.objectweb.asm.signature
+Private-Package: org.objectweb.asm,org.objectweb.asm.signature,org.json
 Bundle-NativeCode: \
     native/linux-x86_64/libbazel_jdt_core.so; osname=Linux; processor=x86_64, \
     native/linux-aarch64/libbazel_jdt_core.so; osname=Linux; processor=aarch64, \
