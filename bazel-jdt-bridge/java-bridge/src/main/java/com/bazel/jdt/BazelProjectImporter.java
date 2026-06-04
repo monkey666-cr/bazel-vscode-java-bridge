@@ -1,6 +1,8 @@
 package com.bazel.jdt;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Hashtable;
 
 import org.eclipse.core.resources.IProject;
@@ -327,30 +329,17 @@ public class BazelProjectImporter extends AbstractProjectImporter {
     }
 
     private static void ensureProjectGitignore(String workspacePath) {
-        File gitignore = new File(workspacePath, ".gitignore");
-        String entry = InternalConfig.BASE_DIR + "/";
+        File gitignore = new File(workspacePath, InternalConfig.BASE_DIR + "/.gitignore");
+        if (gitignore.exists()) return;
         try {
-            if (gitignore.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()),
-                    java.nio.charset.StandardCharsets.UTF_8);
-                for (String line : content.split("\n")) {
-                    if (line.trim().equals(entry)) {
-                        return;
-                    }
-                }
-                String separator = content.endsWith("\n") ? "" : "\n";
-                java.nio.file.Files.write(gitignore.toPath(),
-                    (separator + entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                    java.nio.file.StandardOpenOption.APPEND);
-            } else {
-                java.nio.file.Files.write(gitignore.toPath(),
-                    (entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            }
+            gitignore.getParentFile().mkdirs();
+            Files.write(gitignore.toPath(),
+                "*\n".getBytes(StandardCharsets.UTF_8));
             LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
-                "Added " + entry + " to .gitignore"));
+                "Created " + InternalConfig.BASE_DIR + "/.gitignore"));
         } catch (Exception e) {
             LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
-                "Failed to update .gitignore: " + e.getMessage()));
+                "Failed to create .gitignore: " + e.getMessage()));
         }
     }
 
