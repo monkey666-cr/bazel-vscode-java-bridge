@@ -62,8 +62,11 @@ public class BazelProjectImporter extends AbstractProjectImporter {
         }
 
         bridge.initialize(workspacePath, bazelPath, cacheDir);
+        
         LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
             "Importing Bazel workspace: " + workspacePath));
+
+        ensureProjectGitignore(workspacePath);
 
         if (projectView != null && !projectView.getDirectories().isEmpty()) {
             String[] watchDirs = projectView.getDirectories().toArray(new String[0]);
@@ -271,6 +274,8 @@ public class BazelProjectImporter extends AbstractProjectImporter {
             bridge.setProjectView(projectView);
         }
 
+        ensureProjectGitignore(workspacePath);
+
         if (projectView != null && !projectView.getDirectories().isEmpty()) {
             String[] watchDirs = projectView.getDirectories().toArray(new String[0]);
             bridge.updateWatchPaths(watchDirs);
@@ -319,6 +324,34 @@ public class BazelProjectImporter extends AbstractProjectImporter {
             "Fast reload complete: " + index.size() + " projects restored in " + elapsed + "ms"));
 
         return true;
+    }
+
+    private static void ensureProjectGitignore(String workspacePath) {
+        File gitignore = new File(workspacePath, ".gitignore");
+        String entry = InternalConfig.BASE_DIR + "/";
+        try {
+            if (gitignore.exists()) {
+                String content = new String(java.nio.file.Files.readAllBytes(gitignore.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+                for (String line : content.split("\n")) {
+                    if (line.trim().equals(entry)) {
+                        return;
+                    }
+                }
+                String separator = content.endsWith("\n") ? "" : "\n";
+                java.nio.file.Files.write(gitignore.toPath(),
+                    (separator + entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.APPEND);
+            } else {
+                java.nio.file.Files.write(gitignore.toPath(),
+                    (entry + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            LOG.log(new Status(IStatus.INFO, "com.bazel.jdt",
+                "Added " + entry + " to .gitignore"));
+        } catch (Exception e) {
+            LOG.log(new Status(IStatus.WARNING, "com.bazel.jdt",
+                "Failed to update .gitignore: " + e.getMessage()));
+        }
     }
 
     @Override
